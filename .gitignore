@@ -21,3 +21,7 @@ node_modules/
 .env.*
 *.pem
 *.key
+
+# browser test output
+test-results/
+playwright-report/

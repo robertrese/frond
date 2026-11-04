@@ -30,14 +30,18 @@ You need Python 3 and Node 18 or later.
 ```bash
 python tools/build.py .
 node tests/run.js
-python -m http.server 8000
+npm ci
+npx playwright install chromium
+npx playwright test
 ```
 
-Then open http://localhost:8000/site/. It's served from a subfolder, just like GitHub Pages.
+`tests/run.js` checks the puzzles, the site files, contrast and privacy. The Playwright tests play today's puzzle in Chromium on two phone sizes and a desktop: dragging, tapping, saving, restoring after a reload, and finishing a puzzle.
+
+To play locally, run `npm run serve` and open http://127.0.0.1:4173/frond/. That's the same subfolder as on GitHub Pages.
 
 ## Publish an update
 
-Push to `main`. The **Deploy to GitHub Pages** workflow builds the site, runs the tests and publishes it only if they pass. Installed copies pick up the new version the next time they're opened online.
+Push to `main`. The **Deploy to GitHub Pages** workflow builds the site, runs both test suites and publishes it only if they all pass. Installed copies pick up the new version the next time they're opened online.
 
 ## Credits
 

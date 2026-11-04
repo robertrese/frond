@@ -22,7 +22,7 @@ section('Puzzles');
   const cut = (from, to) => app.slice(app.indexOf(from), app.indexOf(to));
   const code = cut('const DATA', '/* ---------- storage') + cut('const pad =', '/* ---------- puzzle generation') +
     cut('/* ---------- puzzle generation', '/* ---------- streaks') +
-    'return { PACKS, LEVELS, PER_PACK, LAUNCH, GEN2_FROM, BLOCKED, puzzle, versionOf, packId, dailyId, iso, addDays, parse };';
+    'return { PACKS, LEVELS, PER_PACK, LAUNCH, GEN2_FROM, BLOCKED, puzzle, versionOf, problems, packId, dailyId, iso, addDays, parse };';
   const G = new Function('window', code)(sandbox.window);
   // independent scan (not the generator's own check): every place `str` reads in 8 directions
   const DIRS = [[0, 1], [1, 0], [1, 1], [-1, 1], [0, -1], [-1, 0], [1, -1], [-1, -1]];
@@ -44,10 +44,13 @@ section('Puzzles');
   };
   ok(G.BLOCKED.length >= 40 && G.BLOCKED.every((b) => /^[A-Z]{3,}$/.test(b)), 'blocked word list did not decode');
   let changed = 0, cleanV2 = 0, dirtyV1 = 0;
+  const wordUse = {};
   const verify = (q, count, label) => {
+    // every puzzle a new player can reach (whatever its generator version) must be clean
+    const bad = issues(q);
+    ok(!bad.length, label + ' (v' + q.gv + ') has ' + bad.join(', '));
+    q.words.forEach((w) => { wordUse[w.word] = (wordUse[w.word] || 0) + 1; });
     if (q.gv >= 2) {
-      const bad = issues(q);
-      ok(!bad.length, label + ' (v2) has ' + bad.join(', '));
       cleanV2++;
       // a grid v1 already made cleanly must come out of v2 unchanged
       const old = G.puzzle(q.id, 1);
@@ -69,7 +72,7 @@ section('Puzzles');
   };
   // every puzzle players can open, three years of dailies, and 25 spare seeds per theme and
   // difficulty so each grid size is exercised well beyond the shipped set
-  const DAILY_DAYS = 3 * 365, SPARE_SEEDS = 25;
+  const DAILY_DAYS = 10 * 365, SPARE_SEEDS = 25;
   const tally = {};
   const count = (k) => { tally[k] = (tally[k] || 0) + 1; };
   const t0 = Date.now();
@@ -89,6 +92,40 @@ section('Puzzles');
   ok(G.versionOf('p:herbs:easy:0') === 2, 'new library puzzles should use v2');
   const dec11 = G.puzzle('d:2026-12-11');
   ok(dec11.gv === 2 && !issues(dec11).length, 'the 11 Dec 2026 daily still contains a blocked string');
+  // the filter checks filler letters, never the answers: listed words that contain a blocked
+  // string (GRAPE, COCKATOO, PASS...) must still be playable and still turn up in puzzles
+  const allWords = [...new Set(G.PACKS.flatMap((p) => p.words))];
+  const sensitive = allWords.filter((wd) => G.BLOCKED.some((b) => wd.includes(b) || [...wd].reverse().join('').includes(b)));
+  for (const wd of sensitive) {
+    const n = Math.max(wd.length, 3), g = Array.from({ length: n }, () => Array(n).fill('.'));
+    [...wd].forEach((ch, k) => { g[0][k] = ch; });
+    ok(!G.problems(g, [{ word: wd, r: 0, c: 0, dr: 0, dc: 1 }]), wd + ' is a listed word but the filter rejects it');
+    ok(wordUse[wd] > 0, wd + ' never appears in any generated puzzle');
+  }
+  ok(allWords.every((wd) => wordUse[wd] > 0), 'some listed words never appear: ' + allWords.filter((wd) => !wordUse[wd]).join(' '));
+
+  // the filter must see blocked strings in every direction and wherever filler meets an answer
+  // '.' cells are empty, so only the letters shown can match
+  const grid = (rows) => rows.map((r) => r.split(''));
+  const oakLow = [{ word: 'OAK', r: 3, c: 0, dr: 0, dc: 1 }], oakHigh = [{ word: 'OAK', r: 0, c: 0, dr: 0, dc: 1 }];
+  const pear = [{ word: 'PEAR', r: 0, c: 0, dr: 0, dc: 1 }], grape = [{ word: 'GRAPE', r: 0, c: 0, dr: 0, dc: 1 }];
+  const cases = [
+    ['clean grid', ['....', '....', '....', 'OAK.'], oakLow, false],
+    ['filler spells it across', ['CRAP', '....', '....', 'OAK.'], oakLow, true],
+    ['filler spells it backwards', ['PARC', '....', '....', 'OAK.'], oakLow, true],
+    ['filler spells it down', ['...C', '...R', '...A', 'OAKP'], oakLow, true],
+    ['filler spells it up', ['...P', '...A', '...R', 'OAKC'], oakLow, true],
+    ['filler spells it diagonally down-right', ['C...', '.R..', '..A.', 'OAKP'], oakLow, true],
+    ['filler spells it diagonally up-left', ['P...', '.A..', '..R.', 'OAKC'], oakLow, true],
+    ['filler spells it diagonally up-right', ['OAKP', '..A.', '.R..', 'C...'], oakHigh, true],
+    ['filler spells it diagonally down-left', ['OAKC', '..R.', '.A..', 'P...'], oakHigh, true],
+    ['an answer letter joined to filler (P of PEAR + ISS below)', ['PEAR', 'I...', 'S...', 'S...'], pear, true],
+    ['filler joined to the end of an answer (OAK + filler)', ['....', '....', '....', 'OAKS'].map((r, i) => (i === 3 ? 'ASS.' : r)), [{ word: 'AS', r: 3, c: 0, dr: 0, dc: 1 }], true],
+    ['blocked string wholly inside an answer is allowed (GRAPE)', ['GRAPE', '.....', '.....', '.....', '.....'], grape, false],
+    ['an answer appearing twice', ['OAK.', '....', '....', 'OAK.'], oakLow, true],
+    ['an answer appearing twice, reversed', ['KAO.', '....', '....', 'OAK.'], oakLow, true],
+  ];
+  for (const [name, rows, placed, want] of cases) ok(G.problems(grid(rows), placed) === want, 'filter case "' + name + '" should be ' + (want ? 'rejected' : 'allowed'));
   const total = Object.values(tally).reduce((a, b) => a + b, 0);
   ok(total >= 1000, 'only ' + total + ' puzzles tested, the target is at least 1,000');
   const by = (lv) => (tally['library ' + lv] || 0) + (tally['spare ' + lv] || 0);

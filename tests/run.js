@@ -36,14 +36,27 @@ section('Puzzles');
     ok(new Set(ws).size === ws.length, label + ' repeats a word');
     ok(!ws.some((a) => ws.some((b) => a !== b && b.includes(a))), label + ' has a word inside another word');
   };
-  let n = 0;
-  for (const p of G.PACKS) for (const lv of Object.keys(G.LEVELS)) for (let i = 0; i < G.PER_PACK; i++) {
-    verify(G.puzzle(G.packId(p.id, lv, i)), G.LEVELS[lv].count, p.id + ' ' + lv + ' ' + (i + 1)); n++;
+  // every puzzle players can open, three years of dailies, and 25 spare seeds per theme and
+  // difficulty so each grid size is exercised well beyond the shipped set
+  const DAILY_DAYS = 3 * 365, SPARE_SEEDS = 25;
+  const tally = {};
+  const count = (k) => { tally[k] = (tally[k] || 0) + 1; };
+  const t0 = Date.now();
+  for (const p of G.PACKS) for (const lv of Object.keys(G.LEVELS)) {
+    for (let i = 0; i < G.PER_PACK + SPARE_SEEDS; i++) {
+      verify(G.puzzle(G.packId(p.id, lv, i)), G.LEVELS[lv].count, p.id + ' ' + lv + ' ' + (i + 1));
+      count(i < G.PER_PACK ? 'library ' + lv : 'spare ' + lv);
+    }
   }
-  for (let k = 0; k < 400; k++) { const d = G.iso(G.addDays(G.parse(G.LAUNCH), k)); verify(G.puzzle(G.dailyId(d)), 9, 'daily ' + d); n++; }
+  for (let k = 0; k < DAILY_DAYS; k++) { const d = G.iso(G.addDays(G.parse(G.LAUNCH), k)); verify(G.puzzle(G.dailyId(d)), 9, 'daily ' + d); count('daily'); }
   const again = new Function('window', code)(sandbox.window).puzzle('d:2026-11-02');
   ok(JSON.stringify(again.rows) === JSON.stringify(G.puzzle('d:2026-11-02').rows), 'the same day gives a different grid on a second run');
-  console.log('  ' + n + ' puzzles generated and verified');
+  const total = Object.values(tally).reduce((a, b) => a + b, 0);
+  ok(total >= 1000, 'only ' + total + ' puzzles tested, the target is at least 1,000');
+  const by = (lv) => (tally['library ' + lv] || 0) + (tally['spare ' + lv] || 0);
+  console.log('  ' + total + ' puzzles generated and verified in ' + (Date.now() - t0) + ' ms');
+  console.log('    easy 8x8: ' + by('easy') + ' · medium 10x10: ' + by('medium') + ' · hard 12x12: ' + by('hard') + ' · daily 8x8: ' + tally.daily);
+  console.log('    (' + G.PACKS.length * 3 * G.PER_PACK + ' are the puzzles players can open; the rest are spare seeds)');
 }
 
 /* ---------- 2. site files ---------- */

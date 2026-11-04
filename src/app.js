@@ -17,6 +17,14 @@
     hard: { label: 'Hard', n: 12, count: 12, dirs: ALL }
   };
   const DAILY = { n: 8, count: 9, dirs: MED };
+  // Difficulty rules from generator v3 (library puzzles only). Words never read right to left
+  // on Easy or Medium: Medium's diagonals both run left to right (down-right and up-right).
+  const HARD_WORDS = [15, 15]; // 14, 15 and 16 were compared on 360px and 390px phones
+  const LEVELS3 = {
+    easy: { n: 8, min: 6, max: 8, dirs: [[0, 1], [1, 0]] },
+    medium: { n: 10, min: 10, max: 12, dirs: [[0, 1], [1, 0], [1, 1], [-1, 1]] },
+    hard: { n: 12, min: HARD_WORDS[0], max: HARD_WORDS[1], dirs: ALL }
+  };
 
   /* ---------- storage ---------- */
   const KEY = 'frond.v1';
@@ -71,25 +79,62 @@
     return null;
   }
 
+  // v3: place one word in a given direction, trying random starting cells
+  function tryDir(grid, word, n, [dr, dc], rnd, wantOverlap) {
+    for (let t = 0; t < 160; t++) {
+      const r = Math.floor(rnd() * n), c = Math.floor(rnd() * n);
+      const r1 = r + dr * (word.length - 1), c1 = c + dc * (word.length - 1);
+      if (r1 < 0 || r1 >= n || c1 < 0 || c1 >= n) continue;
+      let ok = true, overlap = 0;
+      for (let k = 0; k < word.length; k++) {
+        const ch = grid[r + dr * k][c + dc * k];
+        if (ch && ch !== word[k]) { ok = false; break; }
+        if (ch) overlap++;
+      }
+      if (!ok || overlap === word.length) continue;
+      if (wantOverlap && !overlap && t < 80) continue;
+      for (let k = 0; k < word.length; k++) grid[r + dr * k][c + dc * k] = word[k];
+      return { word, r, c, dr, dc };
+    }
+    return null;
+  }
+  // v3: each word goes in the least-used direction that fits, and never in one already used twice
+  // more than the least-used, so every puzzle's directions differ by at most 2. If nothing fits,
+  // the attempt fails and the generator starts again from the next seed.
+  function tryPlaceEven(grid, word, cfg, rnd, wantOverlap, used) {
+    const least = Math.min(...used);
+    const order = cfg.dirs.map((d, i) => ({ d, i, tie: rnd() })).filter((o) => used[o.i] <= least + 1)
+      .sort((a, b) => used[a.i] - used[b.i] || a.tie - b.tie);
+    for (const { d, i } of order) {
+      const spot = tryDir(grid, word, cfg.n, d, rnd, wantOverlap);
+      if (spot) { used[i]++; return spot; }
+    }
+    return null;
+  }
+
   function generate(words, cfg, seed, gv = 1) {
     for (let attempt = 0; attempt < 40; attempt++) {
       const rnd = rng(hash(seed + '#' + attempt));
+      // v3 picks a word count within the level's range; earlier versions use a fixed count
+      const count = gv >= 3 ? cfg.min + Math.floor(rnd() * (cfg.max - cfg.min + 1)) : cfg.count;
       const pool = shuffle(words.filter((w) => w.length >= 3 && w.length <= cfg.n), rnd);
       const chosen = [];
       for (const w of pool) {
-        if (chosen.length === cfg.count) break;
+        if (chosen.length === count) break;
         if (chosen.some((x) => x.includes(w) || w.includes(x) || x.includes([...w].reverse().join('')))) continue;
         chosen.push(w);
       }
       chosen.sort((a, b) => b.length - a.length);
       const grid = Array.from({ length: cfg.n }, () => Array(cfg.n).fill(''));
       const placed = [];
+      const used = cfg.dirs.map(() => 0);
       for (const w of chosen) {
-        const spot = tryPlace(grid, w, cfg, rnd, placed.length > 0 && rnd() < 0.45);
+        const overlapWanted = placed.length > 0 && rnd() < 0.45;
+        const spot = gv >= 3 ? tryPlaceEven(grid, w, cfg, rnd, overlapWanted, used) : tryPlace(grid, w, cfg, rnd, overlapWanted);
         if (!spot) break;
         placed.push(spot);
       }
-      if (placed.length !== cfg.count) continue;
+      if (placed.length !== count) continue;
       const theme = placed.map((p) => p.word).join('');
       const common = 'EEEAAIIOONNRRSSTTLLDDUCGHMPBYKFW';
       const filler = [];
@@ -143,12 +188,13 @@
 
   // Generator versions. Puzzles already started or solved keep the version they were made with,
   // and dailies before GEN2_FROM stay on v1, so no saved game or past daily changes under a player.
+  // v3 (difficulty rules) is for library puzzles only: dailies stay on v2.
   const GEN2_FROM = '2026-11-05';
   function versionOf(id) {
     const rec = typeof S !== 'undefined' && (S.progress[id] || S.solved[id]);
     if (rec) return rec.gv || 1;
-    if (id.startsWith('d:') && id.slice(2) < GEN2_FROM) return 1;
-    return 2;
+    if (id.startsWith('d:')) return id.slice(2) < GEN2_FROM ? 1 : 2;
+    return 3;
   }
 
   const cache = {};
@@ -163,7 +209,7 @@
       out = { ...build(pack.words, DAILY, 'daily:' + parts[1], gv), id, kind: 'daily', date: parts[1], pack, title: pack.name, number: k + 1 };
     } else {
       const pack = PACK[parts[1]], level = parts[2], idx = Number(parts[3]);
-      out = { ...build(pack.words, LEVELS[level], id, gv), id, kind: 'pack', pack, level, idx, title: pack.name };
+      out = { ...build(pack.words, gv >= 3 ? LEVELS3[level] : LEVELS[level], id, gv), id, kind: 'pack', pack, level, idx, title: pack.name };
     }
     out.gv = gv;
     cache[key] = out;
@@ -442,9 +488,14 @@
       '<div class="pz-board">' + boardHTML(p, prog.found, { interactive: true, label: 'Letter grid, ' + p.n + ' by ' + p.n }) + '</div>' +
       '<section class="pz-words" aria-labelledby="h-words"><div class="section-title"><h2 id="h-words">Find these</h2><span class="eyebrow" id="left">' + (p.words.length - prog.found.length) + ' left</span></div><ul class="words" id="words">' + wordListHTML(p, prog) + '</ul></section>' +
       '<div class="pz-tools" role="toolbar" aria-label="Puzzle controls" id="tools">' + toolsHTML(prog) + '</div>' +
-      '<p class="pz-help" id="pz-help">Drag across letters, or tap the first letter and then the last. Words run across, down, diagonally' + (p.kind === 'daily' || p.level !== 'easy' ? ' and backwards' : '') + '. With a keyboard, move with the arrow keys and press Enter on the first and last letter.</p>' +
+      '<p class="pz-help" id="pz-help">Drag across letters, or tap the first letter and then the last. Words run ' + directionsText(p) + '. With a keyboard, move with the arrow keys and press Enter on the first and last letter.</p>' +
       leafStrip() +
     '</div></div>';
+  }
+  // how words can run, in the player's words (matches each generator version's rules)
+  function directionsText(p) {
+    if (p.kind === 'pack' && p.gv >= 3) return { easy: 'across and down only', medium: 'across, down and diagonally, always reading left to right', hard: 'in all 8 directions, including backwards' }[p.level];
+    return 'across, down, diagonally' + (p.kind === 'daily' || p.level !== 'easy' ? ' and backwards' : '');
   }
   function toolsHTML(prog) {
     const left = HINTS - prog.hints;

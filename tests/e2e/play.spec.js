@@ -163,6 +163,47 @@ test('progress is saved after every word and restored exactly after a reload', a
   await expect(page.locator('#words li.done')).toHaveCount(2);
 });
 
+test('library puzzles follow the difficulty rules on screen', async ({ page }) => {
+  const rules = {
+    easy: { n: 8, words: [6, 8], dirs: ['0,1', '1,0'], help: 'across and down only' },
+    medium: { n: 10, words: [10, 12], dirs: ['0,1', '1,0', '1,1', '-1,1'], help: 'always reading left to right' },
+    hard: { n: 12, words: [15, 15], dirs: DIRS.map((d) => d.join(',')), help: 'all 8 directions' },
+  };
+  await page.goto('./');
+  for (const [level, r] of Object.entries(rules)) {
+    await page.locator('[data-go="library"]:visible').first().click();
+    await page.locator('[data-diff="' + level + '"]').click();
+    await page.locator('[data-pack="ocean"]').click();
+    const p = await readPuzzle(page);
+    expect(p.n, level + ' grid size').toBe(r.n);
+    expect(p.words.length, level + ' word count').toBeGreaterThanOrEqual(r.words[0]);
+    expect(p.words.length, level + ' word count').toBeLessThanOrEqual(r.words[1]);
+    await expect(page.locator('#pz-help')).toContainText(r.help);
+    // every listed word sits in the grid only in an allowed direction (locate() finds its reading direction)
+    for (const w of p.words) expect(r.dirs, level + ': ' + w.word).toContain(locate(p, w.word).dr + ',' + locate(p, w.word).dc);
+    await drag(page, p, p.words[0].word);
+    await expect(page.locator('#words li.done')).toHaveCount(1);
+    await page.locator('.pz-bar [data-go]').click();
+  }
+});
+
+test('a library puzzle started before the difficulty rules keeps its original grid', async ({ page }) => {
+  // Baking hard 3 as generator v2 made it (12 words); a player who started it then must get it back unchanged
+  const v2 = 'WIGNICIAAADSCHOCESSHOIAKECIABATTACCRKHRSSCONECAOAAMUKYCEIANTCITEBETIWCEUDWETNASSIORCOEPLYSGEEFCBUTMWCTREPTRLGNUAASADLRUCHIRCRDTCTPSSYNCYRTSAPGTO';
+  // plant the save from a page on the same site where the app isn't running (the app saves its own state as it unloads)
+  await page.goto('./manifest.webmanifest');
+  await page.evaluate(() => {
+    localStorage.setItem('frond.v1', JSON.stringify({ solved: {}, progress: { 'p:baking:hard:2': { found: [], elapsed: 30, hints: 0, hintCells: [], at: Date.now(), gv: 2 } } }));
+  });
+  await page.goto('./');
+  await page.locator('.contcard').click();
+  const p = await readPuzzle(page);
+  expect(p.rows.map((r) => r.join('')).join('')).toBe(v2);
+  expect(p.words).toHaveLength(12);
+  await expect(page.locator('#pz-help')).toContainText('diagonally and backwards');
+  await expect(page.locator('#clock')).toHaveText(/^0:3\d$/);
+});
+
 test('finding every word completes the puzzle, records it, and survives a reload', async ({ page }) => {
   await openDaily(page);
   const p = await readPuzzle(page);

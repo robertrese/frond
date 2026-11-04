@@ -22,9 +22,40 @@ section('Puzzles');
   const cut = (from, to) => app.slice(app.indexOf(from), app.indexOf(to));
   const code = cut('const DATA', '/* ---------- storage') + cut('const pad =', '/* ---------- puzzle generation') +
     cut('/* ---------- puzzle generation', '/* ---------- streaks') +
-    'return { PACKS, LEVELS, PER_PACK, LAUNCH, puzzle, packId, dailyId, iso, addDays, parse };';
+    'return { PACKS, LEVELS, PER_PACK, LAUNCH, GEN2_FROM, BLOCKED, puzzle, versionOf, packId, dailyId, iso, addDays, parse };';
   const G = new Function('window', code)(sandbox.window);
+  // independent scan (not the generator's own check): every place `str` reads in 8 directions
+  const DIRS = [[0, 1], [1, 0], [1, 1], [-1, 1], [0, -1], [-1, 0], [1, -1], [-1, -1]];
+  const spots = (q, str) => {
+    const out = [];
+    for (let r = 0; r < q.n; r++) for (let c = 0; c < q.n; c++) for (const [dr, dc] of DIRS) {
+      const cells = [];
+      for (let k = 0; k < str.length; k++) { const ch = (q.rows[r + dr * k] || '')[c + dc * k]; if (ch !== str[k]) break; cells.push((r + dr * k) + ',' + (c + dc * k)); }
+      if (cells.length === str.length) out.push(cells);
+    }
+    return out;
+  };
+  const issues = (q) => {
+    const paths = q.words.map((w) => new Set(Array.from({ length: w.word.length }, (_, k) => (w.r + w.dr * k) + ',' + (w.c + w.dc * k))));
+    const found = [];
+    for (const w of q.words) if (new Set(spots(q, w.word).map((c) => c.slice().sort().join('|'))).size > 1) found.push(w.word + ' twice');
+    for (const bad of G.BLOCKED) for (const cells of spots(q, bad)) if (!paths.some((ps) => cells.every((x) => ps.has(x)))) found.push('blocked string');
+    return found;
+  };
+  ok(G.BLOCKED.length >= 40 && G.BLOCKED.every((b) => /^[A-Z]{3,}$/.test(b)), 'blocked word list did not decode');
+  let changed = 0, cleanV2 = 0, dirtyV1 = 0;
   const verify = (q, count, label) => {
+    if (q.gv >= 2) {
+      const bad = issues(q);
+      ok(!bad.length, label + ' (v2) has ' + bad.join(', '));
+      cleanV2++;
+      // a grid v1 already made cleanly must come out of v2 unchanged
+      const old = G.puzzle(q.id, 1);
+      const oldBad = issues(old);
+      if (oldBad.length) dirtyV1++;
+      else ok(JSON.stringify(old.rows) === JSON.stringify(q.rows), label + ': clean v1 grid changed in v2');
+      if (JSON.stringify(old.rows) !== JSON.stringify(q.rows)) changed++;
+    }
     ok(q.words.length === count, label + ' has ' + q.words.length + ' words, expected ' + count);
     ok(q.rows.length === q.n && q.rows.every((r) => r.length === q.n && /^[A-Z]+$/.test(r)), label + ' grid is not ' + q.n + 'x' + q.n + ' capital letters');
     for (const w of q.words) {
@@ -51,12 +82,20 @@ section('Puzzles');
   for (let k = 0; k < DAILY_DAYS; k++) { const d = G.iso(G.addDays(G.parse(G.LAUNCH), k)); verify(G.puzzle(G.dailyId(d)), 9, 'daily ' + d); count('daily'); }
   const again = new Function('window', code)(sandbox.window).puzzle('d:2026-11-02');
   ok(JSON.stringify(again.rows) === JSON.stringify(G.puzzle('d:2026-11-02').rows), 'the same day gives a different grid on a second run');
+  // v1 must never change: puzzles already started, solved, or played as past dailies depend on it
+  ok(G.puzzle('d:2026-11-02', 1).rows.join(' ') === 'LYCHEECA FAANMROI ANAIEECR LNLERGOE OALOMNNM ECLCRIUU MANGOGTL OOBMABOP', 'v1 daily for 2 Nov 2026 changed');
+  ok(G.versionOf('d:2026-11-04') === 1 && G.puzzle('d:2026-11-04').gv === 1, 'today’s daily (4 Nov 2026) must stay on v1');
+  ok(G.versionOf('d:' + G.GEN2_FROM) === 2, 'dailies from ' + G.GEN2_FROM + ' should use v2');
+  ok(G.versionOf('p:herbs:easy:0') === 2, 'new library puzzles should use v2');
+  const dec11 = G.puzzle('d:2026-12-11');
+  ok(dec11.gv === 2 && !issues(dec11).length, 'the 11 Dec 2026 daily still contains a blocked string');
   const total = Object.values(tally).reduce((a, b) => a + b, 0);
   ok(total >= 1000, 'only ' + total + ' puzzles tested, the target is at least 1,000');
   const by = (lv) => (tally['library ' + lv] || 0) + (tally['spare ' + lv] || 0);
   console.log('  ' + total + ' puzzles generated and verified in ' + (Date.now() - t0) + ' ms');
   console.log('    easy 8x8: ' + by('easy') + ' · medium 10x10: ' + by('medium') + ' · hard 12x12: ' + by('hard') + ' · daily 8x8: ' + tally.daily);
   console.log('    (' + G.PACKS.length * 3 * G.PER_PACK + ' are the puzzles players can open; the rest are spare seeds)');
+  console.log('  filler check (v2): ' + cleanV2 + ' puzzles clean; ' + dirtyV1 + ' had a problem in v1 and were fixed; ' + changed + ' grids differ from v1');
 }
 
 /* ---------- 2. site files ---------- */

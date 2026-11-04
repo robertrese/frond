@@ -71,7 +71,7 @@
     return null;
   }
 
-  function generate(words, cfg, seed) {
+  function generate(words, cfg, seed, gv = 1) {
     for (let attempt = 0; attempt < 40; attempt++) {
       const rnd = rng(hash(seed + '#' + attempt));
       const pool = shuffle(words.filter((w) => w.length >= 3 && w.length <= cfg.n), rnd);
@@ -92,31 +92,90 @@
       if (placed.length !== cfg.count) continue;
       const theme = placed.map((p) => p.word).join('');
       const common = 'EEEAAIIOONNRRSSTTLLDDUCGHMPBYKFW';
-      for (let r = 0; r < cfg.n; r++) {
-        for (let c = 0; c < cfg.n; c++) {
-          if (!grid[r][c]) grid[r][c] = rnd() < 0.55 ? theme[Math.floor(rnd() * theme.length)] : common[Math.floor(rnd() * common.length)];
-        }
+      const filler = [];
+      for (let r = 0; r < cfg.n; r++) for (let c = 0; c < cfg.n; c++) if (!grid[r][c]) filler.push([r, c]);
+      const fill = () => filler.forEach(([r, c]) => { grid[r][c] = rnd() < 0.55 ? theme[Math.floor(rnd() * theme.length)] : common[Math.floor(rnd() * common.length)]; });
+      fill();
+      // v2: redraw only the filler letters until the grid is clean. A grid that is already clean
+      // comes out exactly as v1 made it, because the same random numbers were used up to here.
+      if (gv >= 2) {
+        let tries = 0;
+        while (problems(grid, placed) && tries < 60) { fill(); tries++; }
+        if (tries === 60) continue;
       }
       return { n: cfg.n, rows: grid.map((row) => row.join('')), words: placed.sort((a, b) => a.word.localeCompare(b.word)) };
     }
     throw new Error('Could not build a grid for ' + seed);
   }
 
+  // Strings the filler letters must never spell in any of the 8 directions, ROT13-encoded so the
+  // source doesn't display them. A match that lies wholly inside a listed word (GRAPE) is allowed.
+  const BLOCKED = 'SHPX FUVG PHAG GJNG QVPX PBPX CVFF JNAX FYHG JUBER OVGPU AVTT AVTN SNT NEFR GVGF ENCR ANMV PENC CBEA NAHF OBBO PHZ FRK NFF OHZ CBB CRAVF PYVG CEVPX XABO GHEQ WVMM QLXR UBZB CNXV PBBA XVXR FCVP PUVAX TBBX FCNM ERGNEQ ONFGNEQ OBYYBPX ORYYRAQ GBFFRE FUNT UBR XXX'
+    .replace(/[A-Z]/g, (ch) => String.fromCharCode(((ch.charCodeAt(0) - 52) % 26) + 65)).split(' ');
+  const DIRS8 = [[0, 1], [1, 0], [1, 1], [-1, 1], [0, -1], [-1, 0], [1, -1], [-1, -1]];
+  // every place a string occurs in the grid, as cell lists ("r,c")
+  function findAll(grid, str) {
+    const n = grid.length, hits = [];
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      if (grid[r][c] !== str[0]) continue;
+      for (const [dr, dc] of DIRS8) {
+        const r1 = r + dr * (str.length - 1), c1 = c + dc * (str.length - 1);
+        if (r1 < 0 || c1 < 0 || r1 >= n || c1 >= n) continue;
+        let k = 1;
+        while (k < str.length && grid[r + dr * k][c + dc * k] === str[k]) k++;
+        if (k === str.length) hits.push(Array.from({ length: k }, (_, j) => (r + dr * j) + ',' + (c + dc * j)));
+      }
+    }
+    return hits;
+  }
+  // a listed word found more than once, or a blocked string made by filler letters
+  function problems(grid, placed) {
+    const paths = placed.map((p) => new Set(Array.from({ length: p.word.length }, (_, k) => (p.r + p.dr * k) + ',' + (p.c + p.dc * k))));
+    for (const p of placed) {
+      const spots = new Set(findAll(grid, p.word).map((cells) => cells.slice().sort().join('|')));
+      if (spots.size > 1) return true;
+    }
+    for (const bad of BLOCKED) {
+      for (const cells of findAll(grid, bad)) if (!paths.some((ps) => cells.every((x) => ps.has(x)))) return true;
+    }
+    return false;
+  }
+
+  // Generator versions. Puzzles already started or solved keep the version they were made with,
+  // and dailies before GEN2_FROM stay on v1, so no saved game or past daily changes under a player.
+  const GEN2_FROM = '2026-11-05';
+  function versionOf(id) {
+    const rec = typeof S !== 'undefined' && (S.progress[id] || S.solved[id]);
+    if (rec) return rec.gv || 1;
+    if (id.startsWith('d:') && id.slice(2) < GEN2_FROM) return 1;
+    return 2;
+  }
+
   const cache = {};
-  function puzzle(id) {
-    if (cache[id]) return cache[id];
+  function puzzle(id, gv = versionOf(id)) {
+    const key = id + '@' + gv;
+    if (cache[key]) return cache[key];
     const parts = id.split(':');
     let out;
     if (parts[0] === 'd') {
       const k = dayIndex(parts[1]);
       const pack = PACKS[((k % PACKS.length) + PACKS.length) % PACKS.length];
-      out = { ...generate(pack.words, DAILY, 'daily:' + parts[1]), id, kind: 'daily', date: parts[1], pack, title: pack.name, number: k + 1 };
+      out = { ...build(pack.words, DAILY, 'daily:' + parts[1], gv), id, kind: 'daily', date: parts[1], pack, title: pack.name, number: k + 1 };
     } else {
       const pack = PACK[parts[1]], level = parts[2], idx = Number(parts[3]);
-      out = { ...generate(pack.words, LEVELS[level], id), id, kind: 'pack', pack, level, idx, title: pack.name };
+      out = { ...build(pack.words, LEVELS[level], id, gv), id, kind: 'pack', pack, level, idx, title: pack.name };
     }
-    cache[id] = out;
+    out.gv = gv;
+    cache[key] = out;
     return out;
+  }
+  // v2 never gives up: if the main seed can't make a clean grid, try numbered backup seeds
+  function build(words, cfg, seed, gv) {
+    if (gv < 2) return generate(words, cfg, seed, gv);
+    for (let b = 0; b < 25; b++) {
+      try { return generate(words, cfg, b ? seed + '~' + b : seed, gv); } catch (e) { /* next backup seed */ }
+    }
+    throw new Error('Could not build a grid for ' + seed);
   }
   const dailyId = (d) => 'd:' + d;
   const packId = (pack, level, idx) => 'p:' + pack + ':' + level + ':' + idx;
@@ -246,9 +305,19 @@
     renderChrome();
     const host = $('#screen');
     const view = { home: viewHome, library: viewLibrary, puzzle: viewPuzzle, done: viewDone, stats: viewStats, settings: viewSettings }[route.name];
-    host.innerHTML = view();
-    if (route.name === 'puzzle') mountPuzzle();
-    document.title = route.name === 'puzzle' ? 'Frond · ' + puzzle(route.arg).title : 'Frond';
+    try {
+      host.innerHTML = view();
+      if (route.name === 'puzzle') mountPuzzle();
+      document.title = route.name === 'puzzle' ? 'Frond · ' + puzzle(route.arg).title : 'Frond';
+    } catch (err) {
+      // never leave a half-built screen: say so and offer a way out
+      P = null; S.view = { name: 'home' }; save();
+      host.innerHTML = '<div class="screen no-tabs"><div class="head"><h1>This puzzle couldn’t be set up</h1></div>' +
+        '<p class="fine">Nothing you’ve saved was lost. Try another puzzle from the library.</p>' +
+        '<button class="btn primary wide" type="button" data-go="library">Open the library</button>' +
+        '<button class="btn wide" type="button" data-go="home">Go home</button></div>';
+      $('#tabbar').hidden = false;
+    }
   }
 
   /* ---------- Home ---------- */
@@ -320,7 +389,7 @@
   /* ---------- Puzzle ---------- */
   let P = null; // live puzzle state
   function progressFor(id) {
-    return S.progress[id] || { found: [], elapsed: 0, hints: 0, hintCells: [], at: Date.now() };
+    return S.progress[id] || { found: [], elapsed: 0, hints: 0, hintCells: [], at: Date.now(), gv: versionOf(id) };
   }
   function capsule(n, r0, c0, r1, c1, thick) {
     const x0 = (c0 + 0.5) / n, y0 = (r0 + 0.5) / n, x1 = (c1 + 0.5) / n, y1 = (r1 + 0.5) / n;
@@ -507,7 +576,7 @@
   function complete() {
     stopClock();
     const id = P.id, p = P.p, prog = P.prog;
-    S.solved[id] = { time: Math.round(prog.elapsed), hints: prog.hints, at: Date.now(), found: prog.found };
+    S.solved[id] = { time: Math.round(prog.elapsed), hints: prog.hints, at: Date.now(), found: prog.found, gv: P.p.gv };
     delete S.progress[id];
     S.last = id;
     save();
@@ -609,7 +678,7 @@
     $('#confirm') && $('#confirm').remove();
     $('#tools').hidden = false;
     if (yes && P) {
-      S.progress[P.id] = { found: [], elapsed: 0, hints: P.prog.hints, hintCells: [], at: Date.now() };
+      S.progress[P.id] = { found: [], elapsed: 0, hints: P.prog.hints, hintCells: [], at: Date.now(), gv: P.p.gv };
       save();
       const id = P.id; P = null; route = { name: 'puzzle', arg: id }; render();
       toast('Puzzle restarted');

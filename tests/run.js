@@ -22,7 +22,7 @@ section('Puzzles');
   const cut = (from, to) => app.slice(app.indexOf(from), app.indexOf(to));
   const code = cut('const DATA', '/* ---------- storage') + cut('const pad =', '/* ---------- puzzle generation') +
     cut('/* ---------- puzzle generation', '/* ---------- streaks') +
-    'return { PACKS, LEVELS, LEVELS3, DAILY, PER_PACK, LAUNCH, GEN2_FROM, BLOCKED, puzzle, versionOf, problems, packId, dailyId, iso, addDays, parse };';
+    'return { PACKS, LEVELS, LEVELS3, DAILY, PER_PACK, LAUNCH, GEN2_FROM, BLOCKED, DAILY_SCHEDULE, CONTENT4_FROM, dailyTheme, puzzle, versionOf, problems, packId, dailyId, iso, addDays, parse };';
   const G = new Function('window', code)(sandbox.window);
   // independent scan (not the generator's own check): every place `str` reads in 8 directions
   const DIRS = [[0, 1], [1, 0], [1, 1], [-1, 1], [0, -1], [-1, 0], [1, -1], [-1, -1]];
@@ -42,6 +42,27 @@ section('Puzzles');
     for (const bad of G.BLOCKED) for (const cells of spots(q, bad)) if (!paths.some((ps) => cells.every((x) => ps.has(x)))) found.push('blocked string');
     return found;
   };
+  // ---- word packs: at least 20 packs of at least 30 valid words, each with a category and icon ----
+  const RAW = sandbox.window.FROND_DATA;
+  const iconKeys = new Set([...app.slice(app.indexOf('const ICONS'), app.indexOf('const icon =')).matchAll(/^\s+(\w+): '/gm)].map((m) => m[1]));
+  ok(RAW.packs.length >= 20, 'only ' + RAW.packs.length + ' word packs, need at least 20');
+  for (const raw of RAW.packs) {
+    const pack = G.PACKS.find((x) => x.id === raw.id);
+    ok(raw.words.length >= 30, raw.name + ' has ' + raw.words.length + ' words, needs at least 30');
+    ok(RAW.categories.some((c) => c.id === raw.cat), raw.name + ' has an unknown category ' + raw.cat);
+    ok(iconKeys.has(raw.icon), raw.name + ' has no icon called ' + raw.icon);
+    ok(new Set(pack.words).size === pack.words.length, raw.name + ' repeats a word');
+    raw.words.forEach((d, i) => {
+      const g = pack.words[i];
+      ok(/^[A-Z]{3,12}$/.test(g), raw.name + ': "' + d + '" becomes ' + g + ', which is not 3-12 letters A-Z');
+      ok(d.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z]/g, '') === g, raw.name + ': grid spelling of "' + d + '" is wrong');
+    });
+    for (const [lv, cfg] of Object.entries(G.LEVELS3)) ok(pack.words.filter((wd) => wd.length <= cfg.n).length >= cfg.max * 1.5, raw.name + ': too few words fit the ' + lv + ' grid');
+  }
+  const legacyPrint = require('crypto').createHash('sha256').update(RAW.packs.filter((p) => p.legacy).map((p) => p.id + ':' + p.legacy).join('|')).digest('hex').slice(0, 16);
+  ok(legacyPrint === '021965e73eef730f', 'a frozen legacy word list was edited (started puzzles and dailies before 1 Dec 2026 depend on them)');
+  ok(RAW.packs.find((p) => p.id === 'farm').cat === 'places', 'Farmyard should be in Places');
+
   ok(G.BLOCKED.length >= 40 && G.BLOCKED.every((b) => /^[A-Z]{3,}$/.test(b)), 'blocked word list did not decode');
   let changed = 0, cleanV2 = 0, dirtyV1 = 0;
   const wordUse = {};
@@ -82,7 +103,7 @@ section('Puzzles');
   for (const lv of Object.keys(G.LEVELS3)) { rules[lv] = { dirs: {}, spread: {}, counts: {} }; }
   const checkRules = (q, lv, label) => {
     const cfg = G.LEVELS3[lv], allowed = new Set(cfg.dirs.map(key)), r = rules[lv];
-    ok(q.gv === 3, label + ' should be made by generator v3, got v' + q.gv);
+    ok(q.gv === 4, label + ' should be made by generator v4, got v' + q.gv);
     ok(q.n === cfg.n, label + ' is ' + q.n + 'x' + q.n + ', expected ' + cfg.n + 'x' + cfg.n);
     const per = Object.fromEntries(cfg.dirs.map((d) => [key(d), 0]));
     for (const w of q.words) {
@@ -105,8 +126,11 @@ section('Puzzles');
       verify(q, [cfg.min, cfg.max], label);
       checkRules(q, lv, label);
       count(i < G.PER_PACK ? 'library ' + lv : 'spare ' + lv);
-      // puzzles a player started under v2 keep that grid, so v2 library puzzles must stay valid too
-      if (i < G.PER_PACK) { verify(G.puzzle(id, 2), [G.LEVELS[lv].count, G.LEVELS[lv].count], label + ' (started before v3)'); count('v2 library'); }
+      // puzzles a player started under v2 or v3 keep that grid (made from the frozen legacy lists)
+      if (i < G.PER_PACK && p.legacy) {
+        verify(G.puzzle(id, 2), [G.LEVELS[lv].count, G.LEVELS[lv].count], label + ' (started under v2)'); count('v2 library');
+        verify(G.puzzle(id, 3), [cfg.min, lv === 'hard' ? cfg.max : cfg.max], label + ' (started under v3)'); count('v3 library');
+      }
     }
   }
   for (const [lv, r] of Object.entries(rules)) {
@@ -117,19 +141,28 @@ section('Puzzles');
     }
     for (let c = cfg.min; c <= cfg.max; c++) ok(r.counts[c] > 0, lv + ' never uses ' + c + ' words');
   }
-  for (let k = 0; k < DAILY_DAYS; k++) { const d = G.iso(G.addDays(G.parse(G.LAUNCH), k)); const q = G.puzzle(G.dailyId(d)); verify(q, [9, 9], 'daily ' + d); ok(q.gv <= 2, 'daily ' + d + ' must not use v3'); count('daily'); }
+  for (let k = 0; k < DAILY_DAYS; k++) {
+    const d = G.iso(G.addDays(G.parse(G.LAUNCH), k)), q = G.puzzle(G.dailyId(d));
+    verify(q, [9, 9], 'daily ' + d);
+    const want = d < G.GEN2_FROM ? 1 : d < G.CONTENT4_FROM ? 2 : 4;
+    ok(q.gv === want, 'daily ' + d + ' should use v' + want + ', got v' + q.gv);
+    count('daily');
+  }
   const again = new Function('window', code)(sandbox.window).puzzle('d:2026-11-02');
   ok(JSON.stringify(again.rows) === JSON.stringify(G.puzzle('d:2026-11-02').rows), 'the same day gives a different grid on a second run');
   // v1 must never change: puzzles already started, solved, or played as past dailies depend on it
   ok(G.puzzle('d:2026-11-02', 1).rows.join(' ') === 'LYCHEECA FAANMROI ANAIEECR LNLERGOE OALOMNNM ECLCRIUU MANGOGTL OOBMABOP', 'v1 daily for 2 Nov 2026 changed');
   ok(G.versionOf('d:2026-11-04') === 1 && G.puzzle('d:2026-11-04').gv === 1, 'today’s daily (4 Nov 2026) must stay on v1');
   ok(G.versionOf('d:' + G.GEN2_FROM) === 2, 'dailies from ' + G.GEN2_FROM + ' should use v2');
-  ok(G.versionOf('p:herbs:easy:0') === 3, 'new library puzzles should use v3');
+  ok(G.versionOf('p:herbs:easy:0') === 4 && G.versionOf('p:ghana:hard:0') === 4, 'new library puzzles should use v4');
+  ok(G.versionOf('d:2026-11-30') === 2 && G.versionOf('d:2026-12-01') === 4, 'dailies switch to the new word packs on 1 Dec 2026, not before');
+  // v3 library grids are frozen for anyone who started one between the v3 and v4 releases
+  ok(G.puzzle('p:ocean:hard:0', 3).rows.join('') === 'LEHFOSODOALSPBELTRUTOPSFMDIUQSEKTTMOIIRJUUETIEWLRNEREUKASBRTHSLLRLHRTBCMSAACOSLIAOOWWEHOITRYRHPLSIWHALRAFESSNLRJAELIIIEFLLACORCASTSTIWNIDOLPHINH', 'v3 library grid for ocean hard 1 changed');
   // v2 library grids are frozen for anyone who started one between 4 Nov and the v3 release
   ok(G.puzzle('p:baking:hard:2', 2).rows.join('') === 'WIGNICIAAADSCHOCESSHOIAKECIABATTACCRKHRSSCONECAOAAMUKYCEIANTCITEBETIWCEUDWETNASSIORCOEPLYSGEEFCBUTMWCTREPTRLGNUAASADLRUCHIRCRDTCTPSSYNCYRTSAPGTO', 'v2 library grid for baking hard 3 changed');
   ok(JSON.stringify(G.DAILY) === JSON.stringify({ n: 8, count: 9, dirs: [[0, 1], [1, 0], [1, 1], [-1, 1], [0, -1], [-1, 0]] }), 'daily puzzle settings changed');
   const dec11 = G.puzzle('d:2026-12-11');
-  ok(dec11.gv === 2 && !issues(dec11).length, 'the 11 Dec 2026 daily still contains a blocked string');
+  ok(dec11.gv === 4 && !issues(dec11).length, 'the 11 Dec 2026 daily must be clean (it once contained a slur)');
   // the filter checks filler letters, never the answers: listed words that contain a blocked
   // string (GRAPE, COCKATOO, PASS...) must still be playable and still turn up in puzzles
   const allWords = [...new Set(G.PACKS.flatMap((p) => p.words))];
@@ -164,15 +197,62 @@ section('Puzzles');
     ['an answer appearing twice, reversed', ['KAO.', '....', '....', 'OAK.'], oakLow, true],
   ];
   for (const [name, rows, placed, want] of cases) ok(G.problems(grid(rows), placed) === want, 'filter case "' + name + '" should be ' + (want ? 'rejected' : 'allowed'));
+  // ---- daily schedule: a played daily never changes ----
+  const crypto = require('crypto');
+  const fingerprint = (q) => q.pack.id + ' v' + q.gv + ' ' + crypto.createHash('sha256').update(q.rows.join('')).digest('hex').slice(0, 16);
+  const snapshot = JSON.parse(fs.readFileSync(path.join(root, 'tests/daily-snapshot.json'), 'utf8'));
+  // "played" = every date up to today anywhere in the world (UTC+14 is the earliest time zone)
+  const playedThrough = new Date(Date.now() + 14 * 3600e3).toISOString().slice(0, 10);
+  let played = 0, futureChanged = 0;
+  for (const [d, want] of Object.entries(snapshot)) {
+    const got = fingerprint(G.puzzle(G.dailyId(d)));
+    // every daily already played, and every daily before the new packs join on 1 Dec 2026, is fixed
+    if (d <= playedThrough || d < G.CONTENT4_FROM) { played++; ok(got === want, 'daily ' + d + ' is fixed but changed: was ' + want + ', now ' + got); }
+    else if (got !== want) futureChanged++;
+  }
+  ok(played >= 29, 'the daily snapshot should cover every daily before 1 Dec 2026');
+  const era2 = G.DAILY_SCHEDULE[1];
+  ok(era2 && era2.from === '2026-12-01' && G.CONTENT4_FROM === '2026-12-01', 'the new daily schedule must start on 1 Dec 2026');
+  ok(era2 && era2.themes.length === G.PACKS.length && new Set(era2.themes).size === G.PACKS.length, 'the new daily schedule must include every pack exactly once');
+  ok(G.DAILY_SCHEDULE[0].from === G.LAUNCH, 'the first schedule era must start at launch');
+  G.DAILY_SCHEDULE.forEach((era, i) => {
+    ok(!i || era.from > G.DAILY_SCHEDULE[i - 1].from, 'schedule eras must be in date order');
+    ok(era.themes.length > 0 && era.themes.every((id) => G.PACKS.some((p) => p.id === id)), 'schedule era ' + era.from + ' names a pack that does not exist');
+  });
+  // adding and reordering packs must not move any daily: rebuild with the packs reversed plus a new one
+  const shuffled = {};
+  new Function('window', fs.readFileSync(path.join(root, 'src/words.js'), 'utf8'))(shuffled);
+  shuffled.FROND_DATA.packs.reverse().push({ id: 'zz-test', name: 'Test Pack', cat: 'places', icon: 'leaf', done: 'Done', words: ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliet', 'kilo', 'lima'] });
+  const G2 = new Function('window', code)(shuffled);
+  let moved = 0;
+  for (let k = 0; k < DAILY_DAYS; k++) {
+    const d = G.iso(G.addDays(G.parse(G.LAUNCH), k));
+    if (fingerprint(G2.puzzle(G2.dailyId(d))) !== fingerprint(G.puzzle(G.dailyId(d)))) moved++;
+  }
+  ok(moved === 0, moved + ' dailies changed when packs were reordered and one was added');
+  // a new schedule era only affects dates from its start
+  const G3 = new Function('window', code)(sandbox.window);
+  G3.DAILY_SCHEDULE.push({ from: '2027-06-01', themes: ['desert', 'coast'] });
+  let before = 0, after = 0;
+  for (let k = 0; k < 2 * 365; k++) {
+    const d = G.iso(G.addDays(G.parse(G.LAUNCH), k));
+    const same = fingerprint(G3.puzzle(G3.dailyId(d))) === fingerprint(G.puzzle(G.dailyId(d)));
+    if (d < '2027-06-01' && !same) before++;
+    if (d >= '2027-06-01' && G3.puzzle(G3.dailyId(d)).pack.id !== (k % 2 === Math.round((G.parse('2027-06-01') - G.parse(G.LAUNCH)) / 864e5) % 2 ? 'desert' : 'coast')) after++;
+  }
+  ok(before === 0, before + ' dailies before a new schedule era changed');
+  ok(after === 0, 'the new schedule era did not take effect from its start date');
+  console.log('  daily schedule: ' + played + ' fixed dailies match the snapshot (everything before ' + G.CONTENT4_FROM + ', and played through ' + playedThrough + '); ' + futureChanged + ' future ones differ; reordering and adding packs moved ' + moved);
+
   const total = Object.values(tally).reduce((a, b) => a + b, 0);
   ok(total >= 1000, 'only ' + total + ' puzzles tested, the target is at least 1,000');
   const by = (lv) => (tally['library ' + lv] || 0) + (tally['spare ' + lv] || 0);
   console.log('  ' + total + ' puzzles generated and verified in ' + (Date.now() - t0) + ' ms');
-  console.log('    easy 8x8: ' + by('easy') + ' · medium 10x10: ' + by('medium') + ' · hard 12x12: ' + by('hard') + ' · daily 8x8: ' + tally.daily + ' · v2 library (started before v3): ' + tally['v2 library']);
+  console.log('    easy 8x8: ' + by('easy') + ' · medium 10x10: ' + by('medium') + ' · hard 12x12: ' + by('hard') + ' · daily 8x8: ' + tally.daily + ' · frozen v2 and v3 library: ' + tally['v2 library'] + ' + ' + tally['v3 library']);
   console.log('    (' + G.PACKS.length * 3 * G.PER_PACK + ' are the puzzles players can open; the rest are spare seeds)');
   for (const [lv, r] of Object.entries(rules)) {
     const total = Object.values(r.dirs).reduce((a, b) => a + b, 0);
-    console.log('  ' + lv + ' (v3): words ' + Object.entries(r.counts).map(([c, n]) => c + '×' + n).join(' ') + ' | directions ' +
+    console.log('  ' + lv + ' (v4 rules): words ' + Object.entries(r.counts).map(([c, n]) => c + '×' + n).join(' ') + ' | directions ' +
       Object.values(r.dirs).map((n) => (n / total * 100).toFixed(1) + '%').join(' ') + ' | spread per puzzle ' + JSON.stringify(r.spread));
   }
   console.log('  filler check (v2): ' + cleanV2 + ' puzzles clean; ' + dirtyV1 + ' had a problem in v1 and were fixed; ' + changed + ' grids differ from v1');

@@ -17,7 +17,9 @@ async function readPuzzle(page) {
     const cells = [...document.querySelectorAll('#board .cells span')];
     const rows = [];
     cells.forEach((s) => { (rows[+s.dataset.r] ||= [])[+s.dataset.c] = s.textContent; });
-    const words = [...document.querySelectorAll('#words li')].map((li) => ({ word: li.lastElementChild.textContent, done: li.classList.contains('done') }));
+    // the list shows display names (PASSION FRUIT, CÔTE D'IVOIRE); the grid uses plain A-Z
+    const toGrid = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
+    const words = [...document.querySelectorAll('#words li')].map((li) => ({ word: toGrid(li.lastElementChild.textContent), shown: li.lastElementChild.textContent, done: li.classList.contains('done') }));
     return { n: rows.length, rows, words };
   });
 }
@@ -185,6 +187,35 @@ test('library puzzles follow the difficulty rules on screen', async ({ page }) =
     await expect(page.locator('#words li.done')).toHaveCount(1);
     await page.locator('.pz-bar [data-go]').click();
   }
+});
+
+test('the library shows 21 packs, every category fits the screen, and a new pack plays', async ({ page }) => {
+  await page.goto('./');
+  await page.locator('[data-go="library"]:visible').first().click();
+  await expect(page.locator('.pack')).toHaveCount(21);
+  // every category chip is on screen, at least 44px tall, and the page never scrolls sideways
+  const chips = await page.locator('.chip').evaluateAll((els) => els.map((c) => { const r = c.getBoundingClientRect(); return { name: c.textContent.trim(), left: r.left, right: r.right, top: Math.round(r.top), h: r.height }; }));
+  const width = page.viewportSize().width;
+  expect(chips.map((c) => c.name)).toEqual(['All', 'Plants', 'Animals', 'Food', 'Places', 'Nature', 'Culture']);
+  for (const c of chips) { expect(c.left, c.name).toBeGreaterThanOrEqual(0); expect(c.right, c.name).toBeLessThanOrEqual(width); expect(c.h, c.name).toBeGreaterThanOrEqual(44); }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
+  expect(new Set(chips.map((c) => c.top)).size, 'rows of category chips').toBeLessThanOrEqual(2);
+
+  const shows = async (cat) => { await page.locator('[data-cat="' + cat + '"]').click(); return page.locator('.pack b').allTextContents(); };
+  expect(await shows('culture')).toEqual(['Sports Day', 'Music Room', 'Ghana']);
+  expect(await shows('nature')).toEqual(['Nature Walk', 'Night Sky']);
+  expect(await shows('places')).toContain('Farmyard');
+  expect(await shows('animals')).not.toContain('Farmyard');
+
+  // a new pack opens with its own icon and plays like any other
+  await page.locator('[data-cat="all"]').click();
+  await expect(page.locator('[data-pack="ghana"] .stamp svg path')).toHaveCount(1);
+  await page.locator('[data-diff="hard"]').click();
+  await page.locator('[data-pack="countries"]').click();
+  const p = await readPuzzle(page);
+  expect(p.words).toHaveLength(15);
+  await drag(page, p, p.words[0].word);
+  await expect(page.locator('#words li.done')).toHaveCount(1);
 });
 
 test('a library puzzle started before the difficulty rules keeps its original grid', async ({ page }) => {

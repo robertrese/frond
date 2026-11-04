@@ -2,7 +2,14 @@
   'use strict';
 
   const DATA = window.FROND_DATA;
-  const PACKS = DATA.packs.map((p) => ({ ...p, words: p.words.split(/\s+/) }));
+  // grid spelling of a display word: A-Z capitals, accents, spaces and punctuation removed
+  const gridOf = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
+  const PACKS = DATA.packs.map((p) => ({
+    ...p,
+    words: p.words.map(gridOf),
+    display: Object.fromEntries(p.words.map((d) => [gridOf(d), d])),
+    legacy: p.legacy ? p.legacy.split(/\s+/) : null
+  }));
   const PACK = Object.fromEntries(PACKS.map((p) => [p.id, p]));
   const LAUNCH = '2026-11-02';
   const PER_PACK = 5;
@@ -116,7 +123,8 @@
     for (let attempt = 0; attempt < 40; attempt++) {
       const rnd = rng(hash(seed + '#' + attempt));
       // v3 picks a word count within the level's range; earlier versions use a fixed count
-      const count = gv >= 3 ? cfg.min + Math.floor(rnd() * (cfg.max - cfg.min + 1)) : cfg.count;
+      const ranged = gv >= 3 && cfg.min != null; // library difficulty rules; dailies keep a fixed count
+      const count = ranged ? cfg.min + Math.floor(rnd() * (cfg.max - cfg.min + 1)) : cfg.count;
       const pool = shuffle(words.filter((w) => w.length >= 3 && w.length <= cfg.n), rnd);
       const chosen = [];
       for (const w of pool) {
@@ -130,7 +138,7 @@
       const used = cfg.dirs.map(() => 0);
       for (const w of chosen) {
         const overlapWanted = placed.length > 0 && rnd() < 0.45;
-        const spot = gv >= 3 ? tryPlaceEven(grid, w, cfg, rnd, overlapWanted, used) : tryPlace(grid, w, cfg, rnd, overlapWanted);
+        const spot = ranged ? tryPlaceEven(grid, w, cfg, rnd, overlapWanted, used) : tryPlace(grid, w, cfg, rnd, overlapWanted);
         if (!spot) break;
         placed.push(spot);
       }
@@ -189,12 +197,31 @@
   // Generator versions. Puzzles already started or solved keep the version they were made with,
   // and dailies before GEN2_FROM stay on v1, so no saved game or past daily changes under a player.
   // v3 (difficulty rules) is for library puzzles only: dailies stay on v2.
+  // v4 uses the expanded word packs: unstarted library puzzles now, dailies from CONTENT4_FROM.
+  // v1-v3 always use the frozen legacy word lists, so their grids never change.
   const GEN2_FROM = '2026-11-05';
+  const CONTENT4_FROM = '2026-12-01';
   function versionOf(id) {
     const rec = typeof S !== 'undefined' && (S.progress[id] || S.solved[id]);
     if (rec) return rec.gv || 1;
-    if (id.startsWith('d:')) return id.slice(2) < GEN2_FROM ? 1 : 2;
-    return 3;
+    if (id.startsWith('d:')) { const d = id.slice(2); return d < GEN2_FROM ? 1 : d < CONTENT4_FROM ? 2 : 4; }
+    return 4;
+  }
+  const wordsFor = (pack, gv) => (gv >= 4 || !pack.legacy ? pack.words : pack.legacy);
+
+  // Daily theme schedule, by pack id, so adding or reordering packs can't move a daily's theme.
+  // Append-only: to change the rotation, add a new era starting on a future date. Never edit an
+  // era that has started (tests/daily-snapshot.json fails the build if a played daily changes).
+  const DAILY_SCHEDULE = [
+    { from: '2026-11-02', themes: ['tropical', 'herbs', 'wildflowers', 'trees', 'birds', 'ocean', 'insects', 'fruit', 'spices', 'baking', 'coast', 'mountain', 'desert'] },
+    // all 21 packs, new and old interleaved; must start on CONTENT4_FROM, when dailies switch to v4
+    { from: '2026-12-01', themes: ['countries', 'tropical', 'sports', 'ocean', 'ghana', 'fruit', 'music', 'birds', 'nature', 'baking', 'sky', 'herbs', 'vegetables', 'coast', 'farm', 'insects', 'spices', 'mountain', 'wildflowers', 'desert', 'trees'] }
+  ];
+  function dailyTheme(date) {
+    let era = DAILY_SCHEDULE[0];
+    for (const e of DAILY_SCHEDULE) if (e.from <= date) era = e;
+    const k = Math.round((parse(date) - parse(era.from)) / 864e5);
+    return PACK[era.themes[((k % era.themes.length) + era.themes.length) % era.themes.length]];
   }
 
   const cache = {};
@@ -205,13 +232,14 @@
     let out;
     if (parts[0] === 'd') {
       const k = dayIndex(parts[1]);
-      const pack = PACKS[((k % PACKS.length) + PACKS.length) % PACKS.length];
-      out = { ...build(pack.words, DAILY, 'daily:' + parts[1], gv), id, kind: 'daily', date: parts[1], pack, title: pack.name, number: k + 1 };
+      const pack = dailyTheme(parts[1]);
+      out = { ...build(wordsFor(pack, gv), DAILY, 'daily:' + parts[1], gv), id, kind: 'daily', date: parts[1], pack, title: pack.name, number: k + 1 };
     } else {
       const pack = PACK[parts[1]], level = parts[2], idx = Number(parts[3]);
-      out = { ...build(pack.words, gv >= 3 ? LEVELS3[level] : LEVELS[level], id, gv), id, kind: 'pack', pack, level, idx, title: pack.name };
+      out = { ...build(wordsFor(pack, gv), gv >= 3 ? LEVELS3[level] : LEVELS[level], id, gv), id, kind: 'pack', pack, level, idx, title: pack.name };
     }
     out.gv = gv;
+    out.display = gv >= 4 ? out.pack.display : {};
     cache[key] = out;
     return out;
   }
@@ -268,6 +296,9 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const title = (w) => w.charAt(0) + w.slice(1).toLowerCase();
+  // a puzzle word as players see it (CÔTE D'IVOIRE, PASSION FRUIT) and as a screen reader says it
+  const shown = (p, word) => (p.display && p.display[word] ? p.display[word].toUpperCase() : word);
+  const spoken = (p, word) => { const d = p.display && p.display[word]; return d ? d.charAt(0).toUpperCase() + d.slice(1) : title(word); };
   const TICK = '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.4 7.4l2.8 2.8 6.2-6.8"/></svg>';
   const tick = (on) => '<span class="tick' + (on ? ' on' : '') + '" aria-hidden="true">' + TICK + '</span>';
   const ICONS = {
@@ -287,7 +318,15 @@
     bread: 'M5 20.5V11a4 4 0 0 1 0-8h14a4 4 0 0 1 0 8v9.5z',
     wave: 'M2 10c3-3 5-3 8 0s5 3 8 0c1.5-1.5 2.5-2 4-2M2 16c3-3 5-3 8 0s5 3 8 0c1.5-1.5 2.5-2 4-2',
     peak: 'M2 20.5 9 8l4 6 3-4 6 10.5z',
-    cactus: 'M10 21V5a2 2 0 0 1 4 0v16M10 13H8a2 2 0 0 1-2-2V8M14 11h2a2 2 0 0 0 2-2V7M6.5 21h11'
+    cactus: 'M10 21V5a2 2 0 0 1 4 0v16M10 13H8a2 2 0 0 1-2-2V8M14 11h2a2 2 0 0 0 2-2V7M6.5 21h11',
+    globe: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z',
+    ball: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7.5l4 3-1.5 4.5h-5L8 10.5zM12 3v4.5M20.5 9.5 16 10.5M17.5 19l-3-4M6.5 19l3-4M3.5 9.5l4.5 1',
+    note: 'M9 18V5l11-2v13M9 9l11-2M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
+    sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8',
+    moon: 'M20 14.5A8.5 8.5 0 1 1 9.5 4 6.5 6.5 0 0 0 20 14.5zM17 3v4M15 5h4',
+    carrot: 'M15 9 4.5 19.5M15 9c-2-2-5-1.5-7 .5L3.5 20.5l11-4.5c2-2 2.5-5 .5-7zM15 9l3-3M15 9c1-2.5 3-4 5.5-4M15 9c2.5-1 4-3 4-5.5',
+    barn: 'M3 21V10l9-6 9 6v11zM9 21v-6h6v6M9 15l6 6M15 15l-6 6M3 10h18',
+    star: 'M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6l-5.4 2.9 1.2-6-4.5-4.2 6.1-.7z'
   };
   const icon = (k) => '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + ICONS[k] + '"/></svg>';
   const stampIcon = (k) => '<span class="stamp" aria-hidden="true">' + icon(k) + '</span>';
@@ -474,7 +513,7 @@
   }
   function wordListHTML(p, prog, fresh) {
     const done = new Set(prog.found.map((f) => f.w));
-    return p.words.map((w) => '<li class="' + (done.has(w.word) ? 'done' : '') + (fresh === w.word ? ' new' : '') + '"><span class="sr">' + title(w.word) + (done.has(w.word) ? ', found' : ', not found yet') + '</span>' + tick(done.has(w.word)) + '<span aria-hidden="true">' + w.word + '</span></li>').join('');
+    return p.words.map((w) => '<li class="' + (done.has(w.word) ? 'done' : '') + (fresh === w.word ? ' new' : '') + '"><span class="sr">' + esc(spoken(p, w.word)) + (done.has(w.word) ? ', found' : ', not found yet') + '</span>' + tick(done.has(w.word)) + '<span aria-hidden="true">' + esc(shown(p, w.word)) + '</span></li>').join('');
   }
 
   function viewPuzzle() {
@@ -611,7 +650,7 @@
     span.setAttribute('style', capsule(n, a[0], a[1], b[0], b[1], 0.72));
     $('#selhl').before(span);
     cells.forEach(([r, c]) => cellEl(r, c).classList.add('f'));
-    $('#selbox').innerHTML = '<span class="eyebrow">Found</span><span class="sticker found">' + hit.word + '</span>';
+    $('#selbox').innerHTML = '<span class="eyebrow">Found</span><span class="sticker found">' + esc(shown(P.p, hit.word)) + '</span>';
     $('#words').innerHTML = wordListHTML(P.p, P.prog, hit.word);
     $('#count').textContent = P.prog.found.length + ' / ' + P.p.words.length + ' found';
     $('#left').textContent = (P.p.words.length - P.prog.found.length) + ' left';
@@ -716,7 +755,7 @@
     save();
     paintHints();
     $('#tools').innerHTML = toolsHTML(P.prog);
-    selText(title(w.word) + ' starts at the circled ' + w.word[0] + ' · row ' + (w.r + 1) + ', column ' + (w.c + 1));
+    selText(esc(spoken(P.p, w.word)) + ' starts at the circled ' + w.word[0] + ' · row ' + (w.r + 1) + ', column ' + (w.c + 1));
     tone([440, 554], 0.12, 0.08, 0.04);
   }
   function askRestart() {

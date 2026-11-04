@@ -1,6 +1,6 @@
 # Frond
 
-A calm, botanical word search. There's a new 8×8 puzzle every day, plus 13 themed packs (plants, animals, food and places) at three sizes: Easy 8×8, Medium 10×10 and Hard 12×12. It keeps streaks and stats, has light and dark themes, and includes accessibility settings.
+A calm, botanical word search. There's a new 8×8 puzzle every day, plus 21 themed packs (plants, animals, food, places, nature and culture, including Countries, Sports Day, Music Room and Ghana) at three sizes: Easy 8×8, Medium 10×10 and Hard 12×12. It keeps streaks and stats, has light and dark themes, and includes accessibility settings.
 
 **Play:** https://robertrese.github.io/frond/
 

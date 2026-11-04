@@ -164,7 +164,7 @@ kbd { font-family: var(--mono); font-size: 12px; padding: 1px 6px; border: 1.5px
 
 /* ---------- library ---------- */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { min-height: 44px; padding: 0 16px; border: 2px solid var(--line); border-radius: 22px; background: transparent; font-weight: 700; font-size: 15px; display: inline-flex; align-items: center; gap: 6px; }
+.chip { min-height: 44px; padding: 0 13px; border: 2px solid var(--line); border-radius: 22px; background: transparent; font-weight: 700; font-size: 15px; display: inline-flex; align-items: center; gap: 6px; }
 .chip svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; display: none; }
 .chip[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .chip[aria-pressed="true"] svg { display: block; }

@@ -20,7 +20,7 @@ root = pathlib.Path(sys.argv[1]).resolve()
 src, dist, site = root / "src", root / "dist", root / "site"
 assets = root / "assets"
 NAME = "Frond"
-DESCRIPTION = "A calm botanical word search: a new puzzle every day, 13 themes at three difficulties, streaks and stats."
+DESCRIPTION = "A calm botanical word search: a new puzzle every day, 21 themes at three difficulties, streaks and stats."
 PAPER, PAPER_DARK = "#F2EBDD", "#191714"
 
 page = (src / "page.html").read_text(encoding="utf-8")

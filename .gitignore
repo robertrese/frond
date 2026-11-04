@@ -1,0 +1,23 @@
+# build output (GitHub Actions builds site/ on every push)
+site/
+dist/
+
+# local editor and assistant settings
+.claude/
+.vscode/
+.idea/
+
+# OS and tooling clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+__pycache__/
+*.pyc
+node_modules/
+*.log
+
+# anything secret, just in case
+.env
+.env.*
+*.pem
+*.key

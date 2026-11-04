@@ -1,0 +1,36 @@
+window.FROND_DATA = {
+  categories: [
+    { id: 'plants', name: 'Plants' },
+    { id: 'animals', name: 'Animals' },
+    { id: 'food', name: 'Food' },
+    { id: 'places', name: 'Places' }
+  ],
+  packs: [
+    { id: 'tropical', name: 'Tropical Garden', cat: 'plants', icon: 'leaf', done: 'Garden complete',
+      words: 'HIBISCUS PAPAYA ORCHID GINGER MANGO GUAVA FERN PALM LIME BANANA CANNA LYCHEE COCONUT BAMBOO MONSTERA PLUMERIA HELICONIA BROMELIAD JASMINE LOTUS CACAO VANILLA PANDAN ALOE' },
+    { id: 'herbs', name: 'Herb Garden', cat: 'plants', icon: 'herb', done: 'Herbs gathered',
+      words: 'BASIL THYME SAGE MINT DILL PARSLEY ROSEMARY OREGANO CHIVES TARRAGON FENNEL LOVAGE SORREL CHERVIL CILANTRO MARJORAM BORAGE HYSSOP LAVENDER CHAMOMILE YARROW SAVORY ANGELICA CATNIP' },
+    { id: 'wildflowers', name: 'Wildflowers', cat: 'plants', icon: 'flower', done: 'Meadow in bloom',
+      words: 'POPPY DAISY CLOVER BLUEBELL FOXGLOVE VIOLET PRIMROSE COWSLIP THISTLE CORNFLOWER BUTTERCUP CAMPION TEASEL HEATHER LUPIN ASTER IRIS TANSY VETCH MALLOW SPEEDWELL ORCHID YARROW CELANDINE' },
+    { id: 'trees', name: 'Woodland Trees', cat: 'plants', icon: 'tree', done: 'Woodland walked',
+      words: 'OAK ASH BIRCH ROWAN HAZEL ALDER BEECH ELM YEW WILLOW POPLAR LARCH MAPLE SPRUCE CEDAR HOLLY LINDEN HORNBEAM SYCAMORE CHESTNUT JUNIPER ASPEN WALNUT CYPRESS' },
+    { id: 'birds', name: 'Rainforest Birds', cat: 'animals', icon: 'bird', done: 'Flock spotted',
+      words: 'TOUCAN MACAW PARROT HORNBILL QUETZAL HUMMINGBIRD TANAGER COTINGA MANAKIN EAGLE TROGON KINGFISHER OROPENDOLA SUNBIRD BARBET LORY COCKATOO CASSOWARY PITTA HOATZIN MOTMOT ANTBIRD JACAMAR HONEYEATER' },
+    { id: 'ocean', name: 'Ocean Life', cat: 'animals', icon: 'fish', done: 'Deep dive done',
+      words: 'WHALE DOLPHIN OCTOPUS SQUID CORAL SHARK TURTLE SEAL ORCA STARFISH URCHIN JELLYFISH MANTA CRAB LOBSTER SHRIMP KELP NARWHAL PUFFIN WALRUS SEAHORSE OTTER CLAM ANEMONE' },
+    { id: 'insects', name: 'Meadow Insects', cat: 'animals', icon: 'bug', done: 'Bugs found',
+      words: 'BEE WASP MOTH BEETLE CRICKET HORNET MANTIS APHID LADYBIRD DRAGONFLY BUTTERFLY FIREFLY CICADA EARWIG WEEVIL GNAT MIDGE LOCUST TERMITE HOVERFLY LACEWING SCARAB MAYFLY BUMBLEBEE' },
+    { id: 'fruit', name: 'Fruit Bowl', cat: 'food', icon: 'apple', done: 'Bowl emptied',
+      words: 'APPLE PEAR PLUM CHERRY PEACH APRICOT GRAPE MELON LEMON ORANGE KIWI FIG QUINCE BERRY CLEMENTINE NECTARINE RAISIN DAMSON MANGO PAPAYA LIME GUAVA PERSIMMON SATSUMA' },
+    { id: 'spices', name: 'Spice Rack', cat: 'food', icon: 'jar', done: 'Rack restocked',
+      words: 'CUMIN CLOVE NUTMEG PAPRIKA SAFFRON TURMERIC PEPPER CINNAMON CARDAMOM ANISE MACE SUMAC CHILLI CAYENNE FENUGREEK MUSTARD CARAWAY ALLSPICE GINGER VANILLA SESAME NIGELLA JUNIPER CORIANDER' },
+    { id: 'baking', name: 'Baker’s Shelf', cat: 'food', icon: 'bread', done: 'Fresh from the oven',
+      words: 'FLOUR SUGAR BUTTER YEAST DOUGH CRUST SCONE BAGEL MUFFIN BRIOCHE CROISSANT PRETZEL CRUMPET PASTRY TART BISCUIT WAFFLE FOCACCIA CIABATTA SOURDOUGH ICING WHISK OVEN RYE' },
+    { id: 'coast', name: 'Coastline', cat: 'places', icon: 'wave', done: 'Shore walked',
+      words: 'BEACH COVE CLIFF DUNE SHORE TIDE WAVE HARBOUR PIER LIGHTHOUSE ROCKPOOL ESTUARY LAGOON BAY CAPE REEF SHINGLE PEBBLE JETTY ISLAND HEADLAND SANDBAR MARSH SEAWALL' },
+    { id: 'mountain', name: 'Mountain Trail', cat: 'places', icon: 'peak', done: 'Summit reached',
+      words: 'PEAK RIDGE SUMMIT VALLEY GLACIER CAIRN SCREE BOULDER CANYON GORGE PASS TARN STREAM MEADOW CREST SLOPE LEDGE PINE SPRING CAVE PLATEAU FOOTHILL TRAIL SADDLE' },
+    { id: 'desert', name: 'Desert Bloom', cat: 'places', icon: 'cactus', done: 'Oasis found',
+      words: 'CACTUS AGAVE YUCCA DUNE OASIS MESA BUTTE SAGUARO CANYON SCORPION LIZARD MIRAGE SAND COYOTE ROADRUNNER TUMBLEWEED ARROYO OCOTILLO CHOLLA GECKO CAMEL SIROCCO SUCCULENT ALOE' }
+  ]
+};

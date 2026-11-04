@@ -1,6 +1,6 @@
 // Word packs. words: display spellings (the grid uses the same letters as A-Z capitals, with
 // accents, spaces and punctuation removed). legacy: the original 24 grid words of the first 13
-// packs, frozen: dailies before 1 Dec 2026 and puzzles started with generator v1-v3 use them.
+// packs, frozen: dailies before 6 Nov 2026 and puzzles started with generator v1-v3 use them.
 // Never edit a legacy list.
 window.FROND_DATA = {
   categories: [

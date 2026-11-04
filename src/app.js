@@ -200,7 +200,7 @@
   // v4 uses the expanded word packs: unstarted library puzzles now, dailies from CONTENT4_FROM.
   // v1-v3 always use the frozen legacy word lists, so their grids never change.
   const GEN2_FROM = '2026-11-05';
-  const CONTENT4_FROM = '2026-12-01';
+  const CONTENT4_FROM = '2026-11-06';
   function versionOf(id) {
     const rec = typeof S !== 'undefined' && (S.progress[id] || S.solved[id]);
     if (rec) return rec.gv || 1;
@@ -215,7 +215,7 @@
   const DAILY_SCHEDULE = [
     { from: '2026-11-02', themes: ['tropical', 'herbs', 'wildflowers', 'trees', 'birds', 'ocean', 'insects', 'fruit', 'spices', 'baking', 'coast', 'mountain', 'desert'] },
     // all 21 packs, new and old interleaved; must start on CONTENT4_FROM, when dailies switch to v4
-    { from: '2026-12-01', themes: ['countries', 'tropical', 'sports', 'ocean', 'ghana', 'fruit', 'music', 'birds', 'nature', 'baking', 'sky', 'herbs', 'vegetables', 'coast', 'farm', 'insects', 'spices', 'mountain', 'wildflowers', 'desert', 'trees'] }
+    { from: '2026-11-06', themes: ['countries', 'tropical', 'sports', 'ocean', 'ghana', 'fruit', 'music', 'birds', 'nature', 'baking', 'sky', 'herbs', 'vegetables', 'coast', 'farm', 'insects', 'spices', 'mountain', 'wildflowers', 'desert', 'trees'] }
   ];
   function dailyTheme(date) {
     let era = DAILY_SCHEDULE[0];

@@ -60,7 +60,7 @@ section('Puzzles');
     for (const [lv, cfg] of Object.entries(G.LEVELS3)) ok(pack.words.filter((wd) => wd.length <= cfg.n).length >= cfg.max * 1.5, raw.name + ': too few words fit the ' + lv + ' grid');
   }
   const legacyPrint = require('crypto').createHash('sha256').update(RAW.packs.filter((p) => p.legacy).map((p) => p.id + ':' + p.legacy).join('|')).digest('hex').slice(0, 16);
-  ok(legacyPrint === '021965e73eef730f', 'a frozen legacy word list was edited (started puzzles and dailies before 1 Dec 2026 depend on them)');
+  ok(legacyPrint === '021965e73eef730f', 'a frozen legacy word list was edited (started puzzles and dailies before 6 Nov 2026 depend on them)');
   ok(RAW.packs.find((p) => p.id === 'farm').cat === 'places', 'Farmyard should be in Places');
 
   ok(G.BLOCKED.length >= 40 && G.BLOCKED.every((b) => /^[A-Z]{3,}$/.test(b)), 'blocked word list did not decode');
@@ -155,7 +155,7 @@ section('Puzzles');
   ok(G.versionOf('d:2026-11-04') === 1 && G.puzzle('d:2026-11-04').gv === 1, 'today’s daily (4 Nov 2026) must stay on v1');
   ok(G.versionOf('d:' + G.GEN2_FROM) === 2, 'dailies from ' + G.GEN2_FROM + ' should use v2');
   ok(G.versionOf('p:herbs:easy:0') === 4 && G.versionOf('p:ghana:hard:0') === 4, 'new library puzzles should use v4');
-  ok(G.versionOf('d:2026-11-30') === 2 && G.versionOf('d:2026-12-01') === 4, 'dailies switch to the new word packs on 1 Dec 2026, not before');
+  ok(G.versionOf('d:2026-11-04') === 1 && G.versionOf('d:2026-11-05') === 2 && G.versionOf('d:2026-11-06') === 4, 'dailies switch to the new word packs on 6 Nov 2026, not before');
   // v3 library grids are frozen for anyone who started one between the v3 and v4 releases
   ok(G.puzzle('p:ocean:hard:0', 3).rows.join('') === 'LEHFOSODOALSPBELTRUTOPSFMDIUQSEKTTMOIIRJUUETIEWLRNEREUKASBRTHSLLRLHRTBCMSAACOSLIAOOWWEHOITRYRHPLSIWHALRAFESSNLRJAELIIIEFLLACORCASTSTIWNIDOLPHINH', 'v3 library grid for ocean hard 1 changed');
   // v2 library grids are frozen for anyone who started one between 4 Nov and the v3 release
@@ -206,13 +206,23 @@ section('Puzzles');
   let played = 0, futureChanged = 0;
   for (const [d, want] of Object.entries(snapshot)) {
     const got = fingerprint(G.puzzle(G.dailyId(d)));
-    // every daily already played, and every daily before the new packs join on 1 Dec 2026, is fixed
+    // every daily already played, and every daily before the new packs join on 6 Nov 2026, is fixed
     if (d <= playedThrough || d < G.CONTENT4_FROM) { played++; ok(got === want, 'daily ' + d + ' is fixed but changed: was ' + want + ', now ' + got); }
     else if (got !== want) futureChanged++;
   }
-  ok(played >= 29, 'the daily snapshot should cover every daily before 1 Dec 2026');
+  ok(played >= 4, 'the daily snapshot should cover every daily before 6 Nov 2026');
+  // the first 31 dailies of the new schedule: v4, rotating through the new list, clean and playable
+  const firstNew = [];
+  for (let k = 0; k < 31; k++) {
+    const d = G.iso(G.addDays(G.parse('2026-11-06'), k)), q = G.puzzle(G.dailyId(d));
+    const want = G.DAILY_SCHEDULE[1].themes[k % G.DAILY_SCHEDULE[1].themes.length];
+    ok(q.gv === 4 && q.pack.id === want, 'daily ' + d + ' should be ' + want + ' on v4, got ' + q.pack.id + ' v' + q.gv);
+    ok(q.words.length === 9 && !issues(q).length, 'daily ' + d + ' is not clean and playable');
+    firstNew.push(d.slice(5) + ' ' + q.pack.id);
+  }
+  ok(G.puzzle('d:2026-11-05').pack.id === 'trees' && G.puzzle('d:2026-11-05').gv === 2, 'the 5 Nov daily must stay Woodland Trees on v2');
   const era2 = G.DAILY_SCHEDULE[1];
-  ok(era2 && era2.from === '2026-12-01' && G.CONTENT4_FROM === '2026-12-01', 'the new daily schedule must start on 1 Dec 2026');
+  ok(era2 && era2.from === '2026-11-06' && G.CONTENT4_FROM === '2026-11-06', 'the new daily schedule must start on 6 Nov 2026');
   ok(era2 && era2.themes.length === G.PACKS.length && new Set(era2.themes).size === G.PACKS.length, 'the new daily schedule must include every pack exactly once');
   ok(G.DAILY_SCHEDULE[0].from === G.LAUNCH, 'the first schedule era must start at launch');
   G.DAILY_SCHEDULE.forEach((era, i) => {
@@ -242,6 +252,7 @@ section('Puzzles');
   }
   ok(before === 0, before + ' dailies before a new schedule era changed');
   ok(after === 0, 'the new schedule era did not take effect from its start date');
+  console.log('  new schedule from 6 Nov (31 dailies checked): ' + firstNew.join(', '));
   console.log('  daily schedule: ' + played + ' fixed dailies match the snapshot (everything before ' + G.CONTENT4_FROM + ', and played through ' + playedThrough + '); ' + futureChanged + ' future ones differ; reordering and adding packs moved ' + moved);
 
   const total = Object.values(tally).reduce((a, b) => a + b, 0);

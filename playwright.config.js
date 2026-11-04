@@ -23,6 +23,8 @@ module.exports = defineConfig({
     // a 390px touch phone and the narrowest common phone, plus a desktop with a mouse
     { name: 'phone-390', use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } } },
     { name: 'phone-360', use: { ...devices['Pixel 7'], viewport: { width: 360, height: 740 } } },
+    { name: 'phone-390-dark', use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 }, colorScheme: 'dark' } },
+    { name: 'phone-360-dark', use: { ...devices['Pixel 7'], viewport: { width: 360, height: 740 }, colorScheme: 'dark' } },
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
   ],
 });

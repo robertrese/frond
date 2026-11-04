@@ -161,6 +161,17 @@ kbd { font-family: var(--mono); font-size: 12px; padding: 1px 6px; border: 1.5px
 .stamp { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border: 2px solid var(--line); border-radius: 10px; background: var(--paper); }
 .stamp svg { width: 24px; height: 24px; fill: none; stroke: var(--ink); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .empty-note { padding: 14px 0; color: var(--ink2); font-size: 15px; }
+.hist-wrap { display: grid; gap: 4px; }
+.hist li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--rule); }
+.hist .info { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.hist .info b { font-size: 16px; line-height: 1.2; }
+.hist .info span { font-size: 13px; color: var(--ink2); }
+.hist .stamp { width: 40px; height: 40px; }
+.hist .htime { flex: none; display: grid; justify-items: end; gap: 1px; text-align: right; }
+.hist .htime b { font-family: var(--mono); font-weight: 500; font-size: 18px; font-variant-numeric: tabular-nums; }
+.hist .htime small { font-size: 12px; color: var(--ink2); white-space: nowrap; }
+.hist-wrap .btn { margin-top: 10px; }
+.best-note { font-weight: 700; color: var(--ink); }
 
 /* ---------- library ---------- */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }

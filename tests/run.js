@@ -258,6 +258,33 @@ section('Puzzles');
   console.log('  filler check (v2): ' + cleanV2 + ' puzzles clean; ' + dirtyV1 + ' had a problem in v1 and were fixed; ' + changed + ' grids differ from v1');
 }
 
+/* ---------- 1b. solve records: best time kept, older records carried over ---------- */
+section('Solve records');
+{
+  const app = fs.readFileSync(path.join(root, 'src/app.js'), 'utf8');
+  const body = app.slice(app.indexOf('/* ---------- solve records'), app.indexOf('/* ---------- feedback'));
+  const mergeSolve = new Function(body + 'return mergeSolve;')();
+  const run = (time, at, extra = {}) => ({ time, hints: 0, at, found: [{ w: 'NEW' }], gv: 4, ...extra });
+  const first = mergeSolve(undefined, run(120, 1));
+  ok(first.time === 120 && first.plays === 1 && first.last.time === 120, 'a first solve records its time as the best');
+  const slower = mergeSolve(first, run(300, 2, { hints: 2 }));
+  ok(slower.time === 120 && slower.at === 1 && slower.hints === 0, 'a slower replay overwrote the best time');
+  ok(slower.plays === 2 && slower.last.time === 300 && slower.last.hints === 2, 'a slower replay should still be counted as the last play');
+  const faster = mergeSolve(slower, run(90, 3));
+  ok(faster.time === 90 && faster.at === 3 && faster.plays === 3, 'a faster replay should become the best time');
+  const tie = mergeSolve(faster, run(90, 4));
+  ok(tie.at === 3, 'an equal time should keep the date the best was first set');
+  // shapes saved by earlier versions of the app
+  const v1 = { time: 200, hints: 1, at: 5, found: [{ w: 'OLD', a: [0, 0], b: [0, 2] }] };
+  const fromV1 = mergeSolve(v1, run(400, 6, { gv: 1 }));
+  ok(fromV1.time === 200 && fromV1.hints === 1 && fromV1.at === 5, 'an older record lost its best time');
+  ok(fromV1.plays === 2 && fromV1.found[0].w === 'OLD' && fromV1.gv === 1, 'an older record lost its grid or found words');
+  const v2 = { time: 50, hints: 0, at: 7, found: [], gv: 2 };
+  const fromV2 = mergeSolve(v2, run(30, 8, { gv: 2 }));
+  ok(fromV2.time === 30 && fromV2.gv === 2 && fromV2.plays === 2, 'a v2 record did not take a faster replay');
+  console.log('  best time kept, replays counted, and v1/v2 records carried over');
+}
+
 /* ---------- 2. site files ---------- */
 section('Site (GitHub Pages build)');
 {

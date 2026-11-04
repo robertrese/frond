@@ -272,6 +272,17 @@
     return { cur, best: Math.max(best, cur) };
   }
 
+  /* ---------- solve records ---------- */
+  // A puzzle's record keeps its best time; a slower replay only adds to plays and last.
+  // Records saved by older versions have just time, hints, at, found (and maybe gv): they read
+  // as one play whose best is that time, so nothing already saved is lost.
+  function mergeSolve(prev, run) {
+    const last = { time: run.time, hints: run.hints, at: run.at };
+    if (!prev) return { ...run, plays: 1, last };
+    const best = run.time < prev.time ? { time: run.time, hints: run.hints, at: run.at } : { time: prev.time, hints: prev.hints, at: prev.at };
+    return { ...prev, ...best, found: prev.found || run.found, gv: prev.gv || run.gv, plays: (prev.plays || 1) + 1, last };
+  }
+
   /* ---------- feedback: sound + haptics ---------- */
   let ac = null;
   function tone(freqs, dur = 0.09, gap = 0.07, vol = 0.05) {
@@ -433,7 +444,7 @@
             ? (q.date === t ? 'Today’s puzzle' : 'Daily · ' + parse(q.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }))
             : LEVELS[q.level].label + ' · puzzle ' + (q.idx + 1) + ' of ' + PER_PACK;
           return '<li><button class="contcard" type="button" data-play="' + k + '">' + stampIcon(q.pack.icon) +
-            '<span class="info"><b>' + esc(q.title) + '</b><span>' + sub + ' · ' + clock(v.elapsed) + '</span>' +
+            '<span class="info"><b>' + esc(q.title) + '</b><span>' + sub + ' · ' + clock(v.elapsed) + (v.paused ? ' · paused' : '') + '</span>' +
             '<span class="controw"><span class="pbar" aria-hidden="true"><i style="width:' + (v.found.length / q.words.length * 100) + '%"></i></span><span class="found">' + v.found.length + ' of ' + q.words.length + ' found</span></span></span>' +
             '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button></li>';
         }).join('') + '</ul>'
@@ -595,6 +606,7 @@
     board.addEventListener('focus', () => { if (P && !P.cursor) P.cursor = [0, 0]; });
     board.addEventListener('blur', () => { if (P) setCursor(null, true); });
     startClock();
+    if (prog.paused) setPaused(true, true); // a puzzle paused before a reload stays paused
   }
   function snap(a, b) {
     const dr = b[0] - a[0], dc = b[1] - a[1];
@@ -666,7 +678,9 @@
   function complete() {
     stopClock();
     const id = P.id, p = P.p, prog = P.prog;
-    S.solved[id] = { time: Math.round(prog.elapsed), hints: prog.hints, at: Date.now(), found: prog.found, gv: P.p.gv };
+    const run = { time: Math.round(prog.elapsed), hints: prog.hints, at: Date.now(), found: prog.found, gv: P.p.gv };
+    S.solved[id] = mergeSolve(S.solved[id], run);
+    S.lastRun = { id, time: run.time, hints: run.hints, at: run.at };
     delete S.progress[id];
     S.last = id;
     save();
@@ -731,16 +745,17 @@
     save();
     P = null;
   }
-  function setPaused(on) {
+  function setPaused(on, restoring) {
     if (!P) return;
     P.paused = on;
+    if (on) P.prog.paused = true; else delete P.prog.paused;
     $('#board').classList.toggle('paused', on);
     $('#pausecover').hidden = !on;
     const b = document.querySelector('[data-act="pause"]');
     b.setAttribute('aria-pressed', String(on));
     b.lastChild.previousSibling.textContent = on ? 'Paused ' : 'Pause ';
     $('#timer').setAttribute('aria-label', on ? 'Time, paused at ' + clockLong(Math.round(P.prog.elapsed)) : 'Time');
-    if (on) { P.anchor = null; clearSel(); selText('Paused'); $('#pausecover button').focus(); }
+    if (on) { P.anchor = null; clearSel(); selText('Paused'); if (!restoring) $('#pausecover button').focus(); }
     else { selText('Drag across a word'); $('#board').focus(); }
     save();
   }
@@ -778,6 +793,10 @@
   /* ---------- Completion ---------- */
   function viewDone() {
     const id = route.arg, p = puzzle(id), rec = S.solved[id];
+    const run = S.lastRun && S.lastRun.id === id ? S.lastRun : { time: rec.time, hints: rec.hints, at: rec.at };
+    const replayNote = (rec.plays || 1) < 2 ? ''
+      : run.at === rec.at ? '<p class="done-sub best-note">New best time for this puzzle</p>'
+      : '<p class="done-sub best-note">Your best for this puzzle is ' + clock(rec.time) + '</p>';
     const { cur } = streaks();
     let nextLabel, nextId;
     if (p.kind === 'daily') {
@@ -798,14 +817,14 @@
       ? '<div><dt>Streak</dt><dd>' + cur + (cur === 1 ? ' day' : ' days') + '</dd></div>'
       : '<div><dt>Theme</dt><dd>' + packDone(p.pack.id, p.level) + ' / ' + PER_PACK + '</dd></div>';
     const share = 'Frond · ' + p.title + (p.kind === 'daily' ? ' · No. ' + p.number : ' · ' + LEVELS[p.level].label) + '\n' +
-      clock(rec.time) + ' · ' + p.words.length + ' words · ' + (rec.hints ? rec.hints + (rec.hints === 1 ? ' hint' : ' hints') : 'no hints') + '\n' +
-      p.words.map((_, i) => (i < rec.hints ? '□' : '■')).join('');
+      clock(run.time) + ' · ' + p.words.length + ' words · ' + (run.hints ? run.hints + (run.hints === 1 ? ' hint' : ' hints') : 'no hints') + '\n' +
+      p.words.map((_, i) => (i < run.hints ? '□' : '■')).join('');
     return '<div class="screen no-tabs">' +
       '<div class="done-top"><button class="btn ghost" type="button" data-go="' + (p.kind === 'daily' ? 'home' : 'library') + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>Close</button>' + leafArt('heart', 110, 70) + '</div>' +
       '<h1 class="big-stamp">' + esc(p.pack.done) + '</h1>' +
       '<p class="done-sub">' + esc(p.title) + (p.kind === 'daily' ? ' · daily No. ' + p.number : ' · ' + LEVELS[p.level].label + ' puzzle ' + (p.idx + 1)) + '</p>' +
       '<div class="mini">' + boardHTML(p, rec.found || [], { label: 'Solved grid with all ' + p.words.length + ' words circled' }) + '</div>' +
-      '<dl class="statrow"><div><dt>Time</dt><dd>' + clock(rec.time) + '</dd></div><div><dt>Hints</dt><dd>' + rec.hints + '</dd></div>' + third + '</dl>' +
+      '<dl class="statrow"><div><dt>Time</dt><dd>' + clock(run.time) + '</dd></div><div><dt>Hints</dt><dd>' + run.hints + '</dd></div>' + third + '</dl>' + replayNote +
       '<section class="card share" aria-labelledby="h-share"><h2 id="h-share" class="eyebrow">Share your result</h2><pre id="sharetext">' + esc(share) + '</pre><button class="btn primary" type="button" data-act="share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy result</button></section>' +
       '<div class="next">' + (nextId
         ? '<button class="btn primary wide" type="button" data-play="' + nextId + '">Next puzzle: ' + esc(nextLabel) + '</button>'
@@ -840,7 +859,33 @@
         '<div class="cal" aria-hidden="true">' + ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d) => '<span class="dow">' + d + '</span>').join('') + '</div>' +
         '<ol class="cal" aria-label="Daily results">' + days.join('') + '</ol></section>' +
       '<dl class="totals"><div><dt>Puzzles solved</dt><dd>' + all.length + '</dd></div><div><dt>Average time</dt><dd>' + avg + '</dd></div><div><dt>Fastest</dt><dd>' + fast + '</dd></div><div><dt>Solved without hints</dt><dd>' + clean + '</dd></div></dl>' +
+      pastSolves() +
     '</div>';
+  }
+
+  // Past solves: one row per puzzle with its best time and the day it was set, newest first
+  let showAllSolves = false;
+  function pastSolves() {
+    const rows = Object.entries(S.solved).map(([id, r]) => {
+      const parts = id.split(':'), daily = parts[0] === 'd';
+      const pack = daily ? dailyTheme(parts[1]) : PACK[parts[1]];
+      const when = r.at ? new Date(r.at) : daily ? parse(parts[1]) : null;
+      return { r, pack, daily, when, level: parts[2], idx: Number(parts[3]), number: daily ? dayIndex(parts[1]) + 1 : 0 };
+    }).filter((x) => x.pack).sort((a, b) => (b.when || 0) - (a.when || 0));
+    const head = '<div class="section-title"><h2 id="h-hist">Past solves</h2><span class="eyebrow">' + rows.length + (rows.length === 1 ? ' puzzle' : ' puzzles') + '</span></div>';
+    if (!rows.length) return '<section aria-labelledby="h-hist" class="hist-wrap">' + head + '<p class="empty-note">Puzzles you finish will be listed here, with your best time.</p></section>';
+    const year = new Date().getFullYear();
+    const date = (d) => (d ? d.toLocaleDateString('en-GB', d.getFullYear() === year ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' }) : '\u2013');
+    const items = (showAllSolves ? rows : rows.slice(0, 10)).map((x) => {
+      const what = x.daily ? 'Daily \u00b7 No. ' + x.number : LEVELS[x.level].label + ' \u00b7 puzzle ' + (x.idx + 1);
+      const plays = (x.r.plays || 1) > 1 ? ' \u00b7 ' + x.r.plays + ' plays' : '';
+      return '<li>' + stampIcon(x.pack.icon) +
+        '<span class="info"><b>' + esc(x.pack.name) + '</b><span>' + what + '</span></span>' +
+        '<span class="htime"><b>' + clock(x.r.time) + '</b><small>' + date(x.when) + plays + '</small></span></li>';
+    }).join('');
+    const more = rows.length > 10 ? '<button class="btn wide" type="button" data-act="all-solves" aria-expanded="' + showAllSolves + '">' + (showAllSolves ? 'Show the latest 10' : 'Show all ' + rows.length) + '</button>' : '';
+    return '<section aria-labelledby="h-hist" class="hist-wrap">' + head +
+      '<p class="sr">Each puzzle shows your best time and the day you set it.</p><ul class="hist">' + items + '</ul>' + more + '</section>';
   }
 
   /* ---------- Settings ---------- */
@@ -886,6 +931,7 @@
     else if (d.act === 'pause') setPaused(!(P && P.paused));
     else if (d.act === 'resume') setPaused(false);
     else if (d.act === 'restart') askRestart();
+    else if (d.act === 'all-solves') { showAllSolves = !showAllSolves; render(); $('[data-act="all-solves"]').focus(); }
     else if (d.act === 'restart-yes') closeRestart(true);
     else if (d.act === 'restart-no') closeRestart(false);
     else if (d.act === 'share') {

@@ -1,6 +1,8 @@
 // End-to-end tests: real Chromium against the built site served from /frond/.
 // Run after the build:  npx playwright test
+// Against the live site:  BASE_URL=https://robertrese.github.io/frond/ npx playwright test
 const { defineConfig, devices } = require('@playwright/test');
+const live = process.env.BASE_URL;
 
 module.exports = defineConfig({
   testDir: 'tests/e2e',
@@ -8,11 +10,11 @@ module.exports = defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['list'], ['github']] : 'list',
   use: {
-    baseURL: 'http://127.0.0.1:4173/frond/',
+    baseURL: live || 'http://127.0.0.1:4173/frond/',
     trace: 'retain-on-failure',
     serviceWorkers: 'allow',
   },
-  webServer: {
+  webServer: live ? undefined : {
     command: 'node tests/e2e/serve.js',
     url: 'http://127.0.0.1:4173/frond/',
     reuseExistingServer: !process.env.CI,

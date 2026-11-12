@@ -32,6 +32,23 @@
     medium: { n: 10, min: 10, max: 12, dirs: [[0, 1], [1, 0], [1, 1], [-1, 1]] },
     hard: { n: 12, min: HARD_WORDS[0], max: HARD_WORDS[1], dirs: ALL }
   };
+  // Generator v5 (dailies from GEN5_FROM, and library puzzles not yet started): a real mix of
+  // directions. Line types: H horizontal, V vertical, D the down-right line, A the down-left line
+  // (Medium reads A left to right, as up-right, because it has no backwards words). No direction
+  // may hold more than 40% of a puzzle's words (Easy: an even across/down split); dailies, Medium
+  // and Hard need every line type and at least 2 crossings; parallel words may never sit on the
+  // same or a neighbouring line where their spans overlap.
+  const lineTypeOf = (dr, dc) => (dr === 0 ? 'H' : dc === 0 ? 'V' : dr === dc ? 'D' : 'A');
+  const at40 = (count) => Math.max(1, Math.floor(count * 0.4 + 1e-9));
+  const half = (count) => Math.ceil(count / 2);
+  const EVERY_LINE = ['H', 'V', 'D', 'A'];
+  const DAILY5 = { n: 8, min: 9, max: 9, dirs: ALL, lineTypes: EVERY_LINE, cap: at40, minCross: 2 };
+  const LEVELS5 = {
+    // even: library puzzles keep the earlier rule that directions differ by at most 2 words
+    easy: { n: 8, min: 6, max: 8, dirs: [[0, 1], [1, 0]], lineTypes: [], cap: half, minCross: 0, even: true },
+    medium: { n: 10, min: 10, max: 12, dirs: [[0, 1], [1, 0], [1, 1], [-1, 1]], lineTypes: EVERY_LINE, cap: at40, minCross: 2, even: true },
+    hard: { n: 12, min: HARD_WORDS[0], max: HARD_WORDS[1], dirs: ALL, lineTypes: EVERY_LINE, cap: at40, minCross: 2, even: true }
+  };
 
   /* ---------- storage ---------- */
   const KEY = 'frond.v1';
@@ -119,6 +136,56 @@
     return null;
   }
 
+  // v5: where a word sits as a line: its line type, which line (row, column or diagonal) and the
+  // stretch of that line it covers. Two words stack if they share a line type, sit on the same or
+  // a neighbouring line, and their stretches overlap.
+  function lineSpan(dr, dc, r, c, len) {
+    const t = lineTypeOf(dr, dc), r1 = r + dr * (len - 1), c1 = c + dc * (len - 1);
+    const line = t === 'H' ? r : t === 'V' ? c : t === 'D' ? r - c : r + c;
+    return { t, line, lo: t === 'H' ? Math.min(c, c1) : Math.min(r, r1), hi: t === 'H' ? Math.max(c, c1) : Math.max(r, r1) };
+  }
+  const stacks = (a, b) => a.t === b.t && Math.abs(a.line - b.line) <= 1 && a.lo <= b.hi && b.lo <= a.hi;
+  // v5: place every word (longest first) in the best legal spot: under its direction's cap, not
+  // stacked against a parallel word, and leaving room to cover every required line type. Spots
+  // that cross other words, use a missing line type or a less-used direction score higher.
+  function placeAll5(grid, chosen, cfg, rnd) {
+    const n = cfg.n, placed = [], spans = [], used = cfg.dirs.map(() => 0), cap = cfg.cap(chosen.length);
+    for (let i = 0; i < chosen.length; i++) {
+      const w = chosen[i], have = new Set(spans.map((s) => s.t));
+      const missing = cfg.lineTypes.filter((t) => !have.has(t));
+      const least = Math.min(...used);
+      let best = null;
+      cfg.dirs.forEach(([dr, dc], di) => {
+        if (used[di] >= cap || (cfg.even && used[di] > least)) return;
+        if (missing.length >= chosen.length - i && !missing.includes(lineTypeOf(dr, dc))) return;
+        for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+          const r1 = r + dr * (w.length - 1), c1 = c + dc * (w.length - 1);
+          if (r1 < 0 || r1 >= n || c1 < 0 || c1 >= n) continue;
+          let overlap = 0, bad = false;
+          for (let k = 0; k < w.length; k++) {
+            const ch = grid[r + dr * k][c + dc * k];
+            if (ch && ch !== w[k]) { bad = true; break; }
+            if (ch) overlap++;
+          }
+          if (bad || overlap === w.length) continue;
+          const s = lineSpan(dr, dc, r, c, w.length);
+          if (spans.some((x) => stacks(x, s))) continue;
+          const score = Math.min(overlap, 2) * 3 + (missing.includes(s.t) ? 4 : 0) - (used[di] - least) * 1.5 + rnd() * 3;
+          if (!best || score > best.score) best = { score, r, c, dr, dc, di, s };
+        }
+      });
+      if (!best) return null;
+      for (let k = 0; k < w.length; k++) grid[best.r + best.dr * k][best.c + best.dc * k] = w[k];
+      placed.push({ word: w, r: best.r, c: best.c, dr: best.dr, dc: best.dc });
+      spans.push(best.s);
+      used[best.di]++;
+    }
+    const covered = new Map();
+    for (const p of placed) for (let k = 0; k < p.word.length; k++) { const key = (p.r + p.dr * k) + ',' + (p.c + p.dc * k); covered.set(key, (covered.get(key) || 0) + 1); }
+    if ([...covered.values()].filter((v) => v > 1).length < cfg.minCross) return null;
+    return placed;
+  }
+
   function generate(words, cfg, seed, gv = 1) {
     for (let attempt = 0; attempt < 40; attempt++) {
       const rnd = rng(hash(seed + '#' + attempt));
@@ -134,13 +201,19 @@
       }
       chosen.sort((a, b) => b.length - a.length);
       const grid = Array.from({ length: cfg.n }, () => Array(cfg.n).fill(''));
-      const placed = [];
-      const used = cfg.dirs.map(() => 0);
-      for (const w of chosen) {
-        const overlapWanted = placed.length > 0 && rnd() < 0.45;
-        const spot = ranged ? tryPlaceEven(grid, w, cfg, rnd, overlapWanted, used) : tryPlace(grid, w, cfg, rnd, overlapWanted);
-        if (!spot) break;
-        placed.push(spot);
+      let placed = [];
+      if (gv >= 5) {
+        if (chosen.length !== count) continue;
+        placed = placeAll5(grid, chosen, cfg, rnd);
+        if (!placed) continue;
+      } else {
+        const used = cfg.dirs.map(() => 0);
+        for (const w of chosen) {
+          const overlapWanted = placed.length > 0 && rnd() < 0.45;
+          const spot = ranged ? tryPlaceEven(grid, w, cfg, rnd, overlapWanted, used) : tryPlace(grid, w, cfg, rnd, overlapWanted);
+          if (!spot) break;
+          placed.push(spot);
+        }
       }
       if (placed.length !== count) continue;
       const theme = placed.map((p) => p.word).join('');
@@ -201,11 +274,14 @@
   // v1-v3 always use the frozen legacy word lists, so their grids never change.
   const GEN2_FROM = '2026-11-05';
   const CONTENT4_FROM = '2026-11-06';
+  // v5 (direction mix, crossings, no stacking): the first daily no player could have seen when it
+  // was released (earliest time zone, UTC+14), and every library puzzle not yet started.
+  const GEN5_FROM = '2026-11-14';
   function versionOf(id) {
     const rec = typeof S !== 'undefined' && (S.progress[id] || S.solved[id]);
     if (rec) return rec.gv || 1;
-    if (id.startsWith('d:')) { const d = id.slice(2); return d < GEN2_FROM ? 1 : d < CONTENT4_FROM ? 2 : 4; }
-    return 4;
+    if (id.startsWith('d:')) { const d = id.slice(2); return d < GEN2_FROM ? 1 : d < CONTENT4_FROM ? 2 : d < GEN5_FROM ? 4 : 5; }
+    return 5;
   }
   const wordsFor = (pack, gv) => (gv >= 4 || !pack.legacy ? pack.words : pack.legacy);
 
@@ -233,10 +309,10 @@
     if (parts[0] === 'd') {
       const k = dayIndex(parts[1]);
       const pack = dailyTheme(parts[1]);
-      out = { ...build(wordsFor(pack, gv), DAILY, 'daily:' + parts[1], gv), id, kind: 'daily', date: parts[1], pack, title: pack.name, number: k + 1 };
+      out = { ...build(wordsFor(pack, gv), gv >= 5 ? DAILY5 : DAILY, 'daily:' + parts[1], gv), id, kind: 'daily', date: parts[1], pack, title: pack.name, number: k + 1 };
     } else {
       const pack = PACK[parts[1]], level = parts[2], idx = Number(parts[3]);
-      out = { ...build(wordsFor(pack, gv), gv >= 3 ? LEVELS3[level] : LEVELS[level], id, gv), id, kind: 'pack', pack, level, idx, title: pack.name };
+      out = { ...build(wordsFor(pack, gv), gv >= 5 ? LEVELS5[level] : gv >= 3 ? LEVELS3[level] : LEVELS[level], id, gv), id, kind: 'pack', pack, level, idx, title: pack.name };
     }
     out.gv = gv;
     out.display = gv >= 4 ? out.pack.display : {};
@@ -544,6 +620,7 @@
   }
   // how words can run, in the player's words (matches each generator version's rules)
   function directionsText(p) {
+    if (p.kind === 'daily' && p.gv >= 5) return 'in all 8 directions, including backwards';
     if (p.kind === 'pack' && p.gv >= 3) return { easy: 'across and down only', medium: 'across, down and diagonally, always reading left to right', hard: 'in all 8 directions, including backwards' }[p.level];
     return 'across, down, diagonally' + (p.kind === 'daily' || p.level !== 'easy' ? ' and backwards' : '');
   }

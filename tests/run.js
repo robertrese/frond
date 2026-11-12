@@ -22,7 +22,7 @@ section('Puzzles');
   const cut = (from, to) => app.slice(app.indexOf(from), app.indexOf(to));
   const code = cut('const DATA', '/* ---------- storage') + cut('const pad =', '/* ---------- puzzle generation') +
     cut('/* ---------- puzzle generation', '/* ---------- streaks') +
-    'return { PACKS, LEVELS, LEVELS3, DAILY, PER_PACK, LAUNCH, GEN2_FROM, BLOCKED, DAILY_SCHEDULE, CONTENT4_FROM, dailyTheme, puzzle, versionOf, problems, packId, dailyId, iso, addDays, parse };';
+    'return { PACKS, ALL, LEVELS, LEVELS3, DAILY, PER_PACK, LAUNCH, GEN2_FROM, GEN5_FROM, BLOCKED, DAILY_SCHEDULE, CONTENT4_FROM, dailyTheme, puzzle, versionOf, problems, packId, dailyId, iso, addDays, parse };';
   const G = new Function('window', code)(sandbox.window);
   // independent scan (not the generator's own check): every place `str` reads in 8 directions
   const DIRS = [[0, 1], [1, 0], [1, 1], [-1, 1], [0, -1], [-1, 0], [1, -1], [-1, -1]];
@@ -97,64 +97,98 @@ section('Puzzles');
   const tally = {};
   const count = (k) => { tally[k] = (tally[k] || 0) + 1; };
   const t0 = Date.now();
-  // difficulty rules (v3, library puzzles a player hasn't started): size, word count, directions, even mix
+  // ---- v5 rules (library puzzles not started, and dailies from GEN5_FROM), checked independently ----
   const key = (d) => d[0] + ',' + d[1];
-  const rules = {}, counts = {};
-  for (const lv of Object.keys(G.LEVELS3)) { rules[lv] = { dirs: {}, spread: {}, counts: {} }; }
-  const checkRules = (q, lv, label) => {
-    const cfg = G.LEVELS3[lv], allowed = new Set(cfg.dirs.map(key)), r = rules[lv];
-    ok(q.gv === 4, label + ' should be made by generator v4, got v' + q.gv);
-    ok(q.n === cfg.n, label + ' is ' + q.n + 'x' + q.n + ', expected ' + cfg.n + 'x' + cfg.n);
-    const per = Object.fromEntries(cfg.dirs.map((d) => [key(d), 0]));
-    for (const w of q.words) {
-      ok(allowed.has(key([w.dr, w.dc])), label + ': ' + w.word + ' runs in a direction ' + lv + ' does not allow (' + w.dr + ',' + w.dc + ')');
-      // Easy and Medium: every word reads left to right, or top to bottom when it runs straight down
-      if (lv !== 'hard') ok(w.dc > 0 || (w.dc === 0 && w.dr > 0), label + ': ' + w.word + ' reads backwards');
-      per[key([w.dr, w.dc])]++;
-      r.dirs[key([w.dr, w.dc])] = (r.dirs[key([w.dr, w.dc])] || 0) + 1;
-    }
-    const v = Object.values(per), spread = Math.max(...v) - Math.min(...v);
-    r.spread[spread] = (r.spread[spread] || 0) + 1;
-    r.counts[q.words.length] = (r.counts[q.words.length] || 0) + 1;
-    ok(spread <= 2, label + ': directions are lopsided (' + JSON.stringify(per) + ')');
+  const lineType = (dr, dc) => (dr === 0 ? 'H' : dc === 0 ? 'V' : dr === dc ? 'D' : 'A');
+  const lineOf = (w) => {
+    const t = lineType(w.dr, w.dc), r1 = w.r + w.dr * (w.word.length - 1), c1 = w.c + w.dc * (w.word.length - 1);
+    const line = t === 'H' ? w.r : t === 'V' ? w.c : t === 'D' ? w.r - w.c : w.r + w.c;
+    return { t, line, lo: t === 'H' ? Math.min(w.c, c1) : Math.min(w.r, r1), hi: t === 'H' ? Math.max(w.c, c1) : Math.max(w.r, r1) };
   };
-  for (const p of G.PACKS) for (const lv of Object.keys(G.LEVELS3)) {
-    const cfg = G.LEVELS3[lv];
+  const crossingsOf = (q) => {
+    const seen = new Map();
+    for (const w of q.words) for (let k = 0; k < w.word.length; k++) { const c = (w.r + w.dr * k) + ',' + (w.c + w.dc * k); seen.set(c, (seen.get(c) || 0) + 1); }
+    return [...seen.values()].filter((v) => v > 1).length;
+  };
+  const stackedPairs = (q) => {
+    const out = [], L = q.words.map(lineOf);
+    for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
+      if (L[i].t === L[j].t && Math.abs(L[i].line - L[j].line) <= 1 && L[i].lo <= L[j].hi && L[j].lo <= L[i].hi) out.push(q.words[i].word + '/' + q.words[j].word);
+    }
+    return out;
+  };
+  const stats = {};
+  // rules: dirs allowed, max share of one direction, every line type, min crossings, even (library spread)
+  const RULES = {
+    daily: { n: 8, words: [9, 9], dirs: G.ALL, cap: (c) => Math.floor(c * 0.4 + 1e-9), lines: 'ADHV', cross: 2 },
+    easy: { n: 8, words: [6, 8], dirs: [[0, 1], [1, 0]], cap: (c) => Math.ceil(c / 2), lines: '', cross: 0, even: true },
+    medium: { n: 10, words: [10, 12], dirs: [[0, 1], [1, 0], [1, 1], [-1, 1]], cap: (c) => Math.floor(c * 0.4 + 1e-9), lines: 'ADHV', cross: 2, even: true },
+    hard: { n: 12, words: [15, 15], dirs: G.ALL, cap: (c) => Math.floor(c * 0.4 + 1e-9), lines: 'ADHV', cross: 2, even: true },
+  };
+  const checkV5 = (q, kind, label) => {
+    const R = RULES[kind], st = (stats[kind] ||= { n: 0, dirs: {}, cross: 0, maxShare: 0, counts: {} });
+    ok(q.gv === 5, label + ' should be made by generator v5, got v' + q.gv);
+    ok(q.n === R.n, label + ' is ' + q.n + 'x' + q.n + ', expected ' + R.n + 'x' + R.n);
+    const allowed = new Set(R.dirs.map(key)), per = Object.fromEntries(R.dirs.map((d) => [key(d), 0]));
+    for (const w of q.words) {
+      ok(allowed.has(key([w.dr, w.dc])), label + ': ' + w.word + ' runs in a direction ' + kind + ' does not allow (' + w.dr + ',' + w.dc + ')');
+      if (kind === 'easy' || kind === 'medium') ok(w.dc > 0 || (w.dc === 0 && w.dr > 0), label + ': ' + w.word + ' reads backwards');
+      per[key([w.dr, w.dc])]++;
+      st.dirs[key([w.dr, w.dc])] = (st.dirs[key([w.dr, w.dc])] || 0) + 1;
+    }
+    const most = Math.max(...Object.values(per));
+    ok(most <= R.cap(q.words.length), label + ': one direction has ' + most + ' of ' + q.words.length + ' words ' + JSON.stringify(per));
+    const lines = [...new Set(q.words.map((w) => lineType(w.dr, w.dc)))].sort().join('');
+    if (R.lines) ok(lines === R.lines, label + ': missing a line type (has ' + lines + ')');
+    if (R.even) { const v = Object.values(per); ok(Math.max(...v) - Math.min(...v) <= 2, label + ': directions are uneven ' + JSON.stringify(per)); }
+    const cross = crossingsOf(q);
+    ok(cross >= R.cross, label + ': only ' + cross + ' crossings, needs ' + R.cross);
+    const stacked = stackedPairs(q);
+    ok(!stacked.length, label + ': parallel words stacked side by side: ' + stacked.join(', '));
+    st.n++; st.cross += cross; st.maxShare = Math.max(st.maxShare, most / q.words.length);
+    st.counts[q.words.length] = (st.counts[q.words.length] || 0) + 1;
+  };
+
+  for (const p of G.PACKS) for (const lv of ['easy', 'medium', 'hard']) {
+    const R = RULES[lv];
     for (let i = 0; i < G.PER_PACK + SPARE_SEEDS; i++) {
       const id = G.packId(p.id, lv, i), label = p.id + ' ' + lv + ' ' + (i + 1);
       const q = G.puzzle(id);
-      verify(q, [cfg.min, cfg.max], label);
-      checkRules(q, lv, label);
+      verify(q, R.words, label);
+      checkV5(q, lv, label);
       count(i < G.PER_PACK ? 'library ' + lv : 'spare ' + lv);
-      // puzzles a player started under v2 or v3 keep that grid (made from the frozen legacy lists)
-      if (i < G.PER_PACK && p.legacy) {
-        verify(G.puzzle(id, 2), [G.LEVELS[lv].count, G.LEVELS[lv].count], label + ' (started under v2)'); count('v2 library');
-        verify(G.puzzle(id, 3), [cfg.min, lv === 'hard' ? cfg.max : cfg.max], label + ' (started under v3)'); count('v3 library');
+      // puzzles a player started under an earlier version keep that grid, so those must stay valid too
+      if (i < G.PER_PACK) {
+        const c3 = G.LEVELS3[lv];
+        verify(G.puzzle(id, 4), [c3.min, c3.max], label + ' (started under v4)'); count('v4 library');
+        if (p.legacy) {
+          verify(G.puzzle(id, 2), [G.LEVELS[lv].count, G.LEVELS[lv].count], label + ' (started under v2)'); count('v2 library');
+          verify(G.puzzle(id, 3), [c3.min, c3.max], label + ' (started under v3)'); count('v3 library');
+        }
       }
     }
   }
-  for (const [lv, r] of Object.entries(rules)) {
-    const cfg = G.LEVELS3[lv], total = Object.values(r.dirs).reduce((a, b) => a + b, 0), even = 100 / cfg.dirs.length;
-    for (const d of cfg.dirs) {
-      const share = (r.dirs[key(d)] || 0) / total * 100;
-      ok(Math.abs(share - even) <= 2.5, lv + ': direction ' + key(d) + ' gets ' + share.toFixed(1) + '% of words, expected about ' + even.toFixed(1) + '%');
-    }
-    for (let c = cfg.min; c <= cfg.max; c++) ok(r.counts[c] > 0, lv + ' never uses ' + c + ' words');
-  }
+  for (const lv of ['easy', 'medium', 'hard']) for (let c = RULES[lv].words[0]; c <= RULES[lv].words[1]; c++) ok(stats[lv].counts[c] > 0, lv + ' never uses ' + c + ' words');
+  let v5Dailies = 0;
   for (let k = 0; k < DAILY_DAYS; k++) {
     const d = G.iso(G.addDays(G.parse(G.LAUNCH), k)), q = G.puzzle(G.dailyId(d));
     verify(q, [9, 9], 'daily ' + d);
-    const want = d < G.GEN2_FROM ? 1 : d < G.CONTENT4_FROM ? 2 : 4;
+    const want = d < G.GEN2_FROM ? 1 : d < G.CONTENT4_FROM ? 2 : d < G.GEN5_FROM ? 4 : 5;
     ok(q.gv === want, 'daily ' + d + ' should use v' + want + ', got v' + q.gv);
+    if (q.gv === 5) { checkV5(q, 'daily', 'daily ' + d); v5Dailies++; }
     count('daily');
   }
+  ok(v5Dailies >= 2 * 365, 'the new rules should be checked on at least 2 years of dailies, got ' + v5Dailies);
+  // frozen v4 grid for anyone who started a library puzzle before v5
+  ok(G.puzzle('p:ghana:hard:0', 4).rows.join('') === 'KENTEANPMODARHSANTKUSLGOENHAACDOMNDBDLNIOGCSAFAFRSEEGANTATNUEKGWSHAHHMFFDEASEGLGYSEUERAKLLBIDECTRVDOUEELFCEOAOBBDMDKKELOWGROUNDNUTSUOYGAABAAWKAU', 'v4 library grid for Ghana hard 1 changed');
   const again = new Function('window', code)(sandbox.window).puzzle('d:2026-11-02');
   ok(JSON.stringify(again.rows) === JSON.stringify(G.puzzle('d:2026-11-02').rows), 'the same day gives a different grid on a second run');
   // v1 must never change: puzzles already started, solved, or played as past dailies depend on it
   ok(G.puzzle('d:2026-11-02', 1).rows.join(' ') === 'LYCHEECA FAANMROI ANAIEECR LNLERGOE OALOMNNM ECLCRIUU MANGOGTL OOBMABOP', 'v1 daily for 2 Nov 2026 changed');
   ok(G.versionOf('d:2026-11-04') === 1 && G.puzzle('d:2026-11-04').gv === 1, 'today’s daily (4 Nov 2026) must stay on v1');
   ok(G.versionOf('d:' + G.GEN2_FROM) === 2, 'dailies from ' + G.GEN2_FROM + ' should use v2');
-  ok(G.versionOf('p:herbs:easy:0') === 4 && G.versionOf('p:ghana:hard:0') === 4, 'new library puzzles should use v4');
+  ok(G.versionOf('p:herbs:easy:0') === 5 && G.versionOf('p:ghana:hard:0') === 5, 'new library puzzles should use v5');
+  ok(G.versionOf('d:2026-11-13') === 4 && G.versionOf('d:' + G.GEN5_FROM) === 5, 'dailies switch to v5 on ' + G.GEN5_FROM + ', not before');
   ok(G.versionOf('d:2026-11-04') === 1 && G.versionOf('d:2026-11-05') === 2 && G.versionOf('d:2026-11-06') === 4, 'dailies switch to the new word packs on 6 Nov 2026, not before');
   // v3 library grids are frozen for anyone who started one between the v3 and v4 releases
   ok(G.puzzle('p:ocean:hard:0', 3).rows.join('') === 'LEHFOSODOALSPBELTRUTOPSFMDIUQSEKTTMOIIRJUUETIEWLRNEREUKASBRTHSLLRLHRTBCMSAACOSLIAOOWWEHOITRYRHPLSIWHALRAFESSNLRJAELIIIEFLLACORCASTSTIWNIDOLPHINH', 'v3 library grid for ocean hard 1 changed');
@@ -162,7 +196,7 @@ section('Puzzles');
   ok(G.puzzle('p:baking:hard:2', 2).rows.join('') === 'WIGNICIAAADSCHOCESSHOIAKECIABATTACCRKHRSSCONECAOAAMUKYCEIANTCITEBETIWCEUDWETNASSIORCOEPLYSGEEFCBUTMWCTREPTRLGNUAASADLRUCHIRCRDTCTPSSYNCYRTSAPGTO', 'v2 library grid for baking hard 3 changed');
   ok(JSON.stringify(G.DAILY) === JSON.stringify({ n: 8, count: 9, dirs: [[0, 1], [1, 0], [1, 1], [-1, 1], [0, -1], [-1, 0]] }), 'daily puzzle settings changed');
   const dec11 = G.puzzle('d:2026-12-11');
-  ok(dec11.gv === 4 && !issues(dec11).length, 'the 11 Dec 2026 daily must be clean (it once contained a slur)');
+  ok(dec11.gv === 5 && !issues(dec11).length, 'the 11 Dec 2026 daily must be clean (it once contained a slur)');
   // the filter checks filler letters, never the answers: listed words that contain a blocked
   // string (GRAPE, COCKATOO, PASS...) must still be playable and still turn up in puzzles
   const allWords = [...new Set(G.PACKS.flatMap((p) => p.words))];
@@ -216,7 +250,7 @@ section('Puzzles');
   for (let k = 0; k < 31; k++) {
     const d = G.iso(G.addDays(G.parse('2026-11-06'), k)), q = G.puzzle(G.dailyId(d));
     const want = G.DAILY_SCHEDULE[1].themes[k % G.DAILY_SCHEDULE[1].themes.length];
-    ok(q.gv === 4 && q.pack.id === want, 'daily ' + d + ' should be ' + want + ' on v4, got ' + q.pack.id + ' v' + q.gv);
+    ok(q.gv === (d < G.GEN5_FROM ? 4 : 5) && q.pack.id === want, 'daily ' + d + ' should be ' + want + ', got ' + q.pack.id + ' v' + q.gv);
     ok(q.words.length === 9 && !issues(q).length, 'daily ' + d + ' is not clean and playable');
     firstNew.push(d.slice(5) + ' ' + q.pack.id);
   }
@@ -259,12 +293,13 @@ section('Puzzles');
   ok(total >= 1000, 'only ' + total + ' puzzles tested, the target is at least 1,000');
   const by = (lv) => (tally['library ' + lv] || 0) + (tally['spare ' + lv] || 0);
   console.log('  ' + total + ' puzzles generated and verified in ' + (Date.now() - t0) + ' ms');
-  console.log('    easy 8x8: ' + by('easy') + ' · medium 10x10: ' + by('medium') + ' · hard 12x12: ' + by('hard') + ' · daily 8x8: ' + tally.daily + ' · frozen v2 and v3 library: ' + tally['v2 library'] + ' + ' + tally['v3 library']);
+  console.log('    easy 8x8: ' + by('easy') + ' · medium 10x10: ' + by('medium') + ' · hard 12x12: ' + by('hard') + ' · daily 8x8: ' + tally.daily + ' · frozen v2, v3, v4 library: ' + tally['v2 library'] + ' + ' + tally['v3 library'] + ' + ' + tally['v4 library']);
   console.log('    (' + G.PACKS.length * 3 * G.PER_PACK + ' are the puzzles players can open; the rest are spare seeds)');
-  for (const [lv, r] of Object.entries(rules)) {
-    const total = Object.values(r.dirs).reduce((a, b) => a + b, 0);
-    console.log('  ' + lv + ' (v4 rules): words ' + Object.entries(r.counts).map(([c, n]) => c + '×' + n).join(' ') + ' | directions ' +
-      Object.values(r.dirs).map((n) => (n / total * 100).toFixed(1) + '%').join(' ') + ' | spread per puzzle ' + JSON.stringify(r.spread));
+  for (const [kind, st] of Object.entries(stats)) {
+    const total = Object.values(st.dirs).reduce((x, y) => x + y, 0);
+    console.log('  ' + kind + ' (v5): ' + st.n + ' puzzles | words ' + Object.entries(st.counts).map(([c, n]) => c + '×' + n).join(' ') +
+      ' | biggest share of one direction ' + Math.round(st.maxShare * 100) + '% | avg crossings ' + (st.cross / st.n).toFixed(1) +
+      ' | directions ' + Object.values(st.dirs).map((n) => (n / total * 100).toFixed(0) + '%').join(' '));
   }
   console.log('  filler check (v2): ' + cleanV2 + ' puzzles clean; ' + dirtyV1 + ' had a problem in v1 and were fixed; ' + changed + ' grids differ from v1');
 }

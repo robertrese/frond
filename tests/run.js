@@ -373,7 +373,7 @@ section('Site (GitHub Pages build)');
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).forEach((e) => e.isDirectory() ? walk(path.join(d, e.name)) : all.push(path.relative(site, path.join(d, e.name)).split(path.sep).join('/')));
   walk(site);
   for (const f of all) if (!['index.html', 'sw.js', '.nojekyll'].includes(f)) ok(pre.includes(f), 'file not cached for offline: ' + f);
-  for (const f of m.icons.map((i) => i.src).concat(['manifest.webmanifest', 'fonts/bricolage-grotesque-latin.woff2'])) ok(pre.includes(f), 'not precached: ' + f);
+  for (const f of m.icons.map((i) => i.src).concat(['manifest.webmanifest', 'fonts/inter-latin.woff2'])) ok(pre.includes(f), 'not precached: ' + f);
   console.log('  ' + all.length + ' files checked, ' + urls.length + ' URLs in index.html');
 }
 

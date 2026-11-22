@@ -416,7 +416,7 @@
     star: 'M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6l-5.4 2.9 1.2-6-4.5-4.2 6.1-.7z'
   };
   const icon = (k) => '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + ICONS[k] + '"/></svg>';
-  const stampIcon = (k) => '<span class="stamp" aria-hidden="true">' + icon(k) + '</span>';
+  const stampIcon = (k, cat) => '<span class="stamp' + (cat ? ' ' + cat : '') + '" aria-hidden="true">' + icon(k) + '</span>';
   const LEAVES = {
     corner: '<g class="lg"><use href="#lf-monstera" transform="translate(132 14) rotate(212) scale(0.46) translate(-100 -100)"/><use href="#lf-blade" transform="translate(150 70) rotate(-120) scale(0.3 0.42) translate(-30 -200)"/></g><g class="lp"><use href="#lf-monstera" transform="translate(137 18) rotate(212) scale(0.46) translate(-100 -100)"/></g>',
     sprig: '<g class="lg"><use href="#lf-blade" transform="translate(152 40) rotate(-96) scale(0.34 0.48) translate(-30 -200)"/><use href="#lf-blade" transform="translate(152 40) rotate(-126) scale(0.28 0.42) translate(-30 -200)"/></g><g class="lp"><use href="#lf-heart" transform="translate(96 -10) rotate(-170) scale(0.36)"/></g>',
@@ -462,16 +462,29 @@
     if (h) { h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); }
   }
   function renderChrome() {
-    const active = route.name === 'puzzle' || route.name === 'done' ? 'library' : route.name;
     const inPlay = route.name === 'puzzle' || route.name === 'done';
-    $('#tabbar').hidden = inPlay;
-    $('#tabbar').innerHTML = TABS.map(([k, label]) =>
-      '<button class="tab" type="button" data-go="' + k + '"' + (k === active && !inPlay ? ' aria-current="page"' : '') + '>' +
-      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + ICONS[k] + '"/></svg><span>' + label + '</span></button>').join('');
-    $('#topnav').innerHTML = '<div class="topnav-inner"><button type="button" class="brand" data-go="home" aria-label="Frond, home">' + brandMark() + '<b>Frond</b></button>' +
-      '<nav aria-label="Main">' + TABS.map(([k, label]) => '<button type="button" data-go="' + k + '"' + (k === active ? ' aria-current="page"' : '') + '>' + label + '</button>').join('') + '</nav></div>';
+    const bar = $('#tabbar'), side = $('#topnav');
+    if (!bar.dataset.built) {
+      bar.innerHTML = '<span class="tab-capsule" aria-hidden="true"></span>' + TABS.map(([k, label]) =>
+        '<button class="tab" type="button" data-go="' + k + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + ICONS[k] + '"/></svg><span>' + label + '</span></button>').join('');
+      side.innerHTML = '<div class="side-inner"><button type="button" class="brand" data-go="home" aria-label="Frond, home">' + brandMark() + '<b>Frond</b></button>' +
+        '<nav class="side-nav" aria-label="Main"><span class="side-capsule" aria-hidden="true"></span>' + TABS.map(([k, label]) =>
+        '<button type="button" data-go="' + k + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + ICONS[k] + '"/></svg>' + label + '</button>').join('') + '</nav></div>';
+      bar.dataset.built = side.dataset.built = '1';
+    }
+    bar.hidden = inPlay;
+    // the side menu stays on desktop during play, with Library current; the phone bar hides
+    const active = inPlay ? 'library' : route.name;
+    const i = TABS.findIndex(([k]) => k === active);
+    for (const el of [bar, side.querySelector('.side-nav')]) {
+      el.style.setProperty('--i', Math.max(i, 0));
+      el.toggleAttribute('data-none', i < 0);
+      el.querySelectorAll('[data-go]').forEach((btn) => {
+        if (btn.dataset.go === active && !(el === bar && inPlay)) btn.setAttribute('aria-current', 'page'); else btn.removeAttribute('aria-current');
+      });
+    }
   }
-  const brandMark = () => '<svg width="24" height="28" viewBox="0 0 26 30" aria-hidden="true"><path d="M13 29 C 3 21, 2 9, 13 1 C 24 9, 23 21, 13 29 Z" fill="var(--green)"/><path d="M13 27 V 5 M13 12 L 8 8 M13 17 L 18 13 M13 22 L 8 18" stroke="var(--paper)" stroke-width="2" fill="none" stroke-linecap="round"/></svg>';
+  const brandMark = (fill = 'var(--green)', vein = 'var(--card)') => '<svg width="24" height="28" viewBox="0 0 26 30" aria-hidden="true"><path d="M13 29 C 3 21, 2 9, 13 1 C 24 9, 23 21, 13 29 Z" fill="' + fill + '"/><path d="M13 27 V 5 M13 12 L 8 8 M13 17 L 18 13 M13 22 L 8 18" stroke="' + vein + '" stroke-width="2" fill="none" stroke-linecap="round"/></svg>';
 
   function render() {
     renderChrome();
@@ -479,6 +492,7 @@
     const view = { home: viewHome, library: viewLibrary, puzzle: viewPuzzle, done: viewDone, stats: viewStats, settings: viewSettings }[route.name];
     try {
       host.innerHTML = view();
+      if (host.firstElementChild) host.firstElementChild.classList.add('enter');
       if (route.name === 'puzzle') mountPuzzle();
       document.title = route.name === 'puzzle' ? 'Frond · ' + puzzle(route.arg).title : 'Frond';
     } catch (err) {
@@ -493,18 +507,16 @@
   }
 
   /* ---------- Home ---------- */
+  // the hero's only texture: one faint leaf, clear of the text
+  const HERO_LEAF = '<svg class="hero-leaf" viewBox="0 0 200 200" aria-hidden="true" focusable="false"><path d="M100 196 C 138 196, 170 178, 186 146 L 122 152 L 192 124 C 196 114, 194 104, 190 96 L 120 112 L 186 72 C 182 62, 176 52, 170 44 L 116 74 L 156 26 C 140 12, 120 4, 104 4 C 80 4, 60 12, 44 26 L 84 74 L 30 44 C 24 52, 18 62, 14 72 L 80 112 L 10 96 C 6 104, 4 114, 8 124 L 78 152 L 14 146 C 30 178, 62 196, 100 196 Z"/></svg>';
   function viewHome() {
     const t = today(), id = dailyId(t), p = puzzle(id);
     const solved = S.solved[id], prog = S.progress[id];
     const { cur, best } = streaks();
-    const onPath = new Set();
-    p.words.forEach((w) => { for (let k = 0; k < w.word.length; k++) onPath.add((w.r + w.dr * k) + ',' + (w.c + w.dc * k)); });
-    let thumb = '';
-    for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) thumb += '<span' + (onPath.has(r + ',' + c) && r === c ? ' class="on"' : '') + '>' + p.rows[r][c] + '</span>';
     const action = solved
       ? '<p class="solved-line">' + tick(true) + 'Solved in ' + clock(solved.time) + (solved.hints ? ' · ' + solved.hints + (solved.hints === 1 ? ' hint' : ' hints') : ' · no hints') + '</p>' +
-        '<button class="btn wide" type="button" data-play="' + id + '">See today’s grid again</button>'
-      : '<button class="btn primary wide" type="button" data-play="' + id + '">' + (prog && prog.found.length ? 'Continue · ' + prog.found.length + ' of ' + p.words.length + ' found' : 'Play today’s puzzle') + '</button>';
+        '<button class="btn cta big wide" type="button" data-play="' + id + '">See today’s grid again</button>'
+      : '<button class="btn cta big wide" type="button" data-play="' + id + '">' + (prog && prog.found.length ? 'Continue · ' + prog.found.length + ' of ' + p.words.length + ' found' : 'Play today’s puzzle') + '</button>';
     const week = Array.from({ length: 7 }, (_, i) => {
       const d = addDays(parse(t), i - 6), ds = iso(d), on = solvedOn(ds);
       const label = d.toLocaleDateString('en-GB', { weekday: 'short' });
@@ -519,16 +531,19 @@
           const sub = q.kind === 'daily'
             ? (q.date === t ? 'Today’s puzzle' : 'Daily · ' + parse(q.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }))
             : LEVELS[q.level].label + ' · puzzle ' + (q.idx + 1) + ' of ' + PER_PACK;
-          return '<li><button class="contcard" type="button" data-play="' + k + '">' + stampIcon(q.pack.icon) +
+          return '<li><button class="contcard" type="button" data-play="' + k + '">' + stampIcon(q.pack.icon, q.pack.cat) +
             '<span class="info"><b>' + esc(q.title) + '</b><span>' + sub + ' · ' + clock(v.elapsed) + (v.paused ? ' · paused' : '') + '</span>' +
             '<span class="controw"><span class="pbar" aria-hidden="true"><i style="width:' + (v.found.length / q.words.length * 100) + '%"></i></span><span class="found">' + v.found.length + ' of ' + q.words.length + ' found</span></span></span>' +
             '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button></li>';
         }).join('') + '</ul>'
       : '<p class="empty-note">Nothing in progress. Any puzzle you start, including today’s, waits here until you finish it.</p>';
-    return '<div class="screen">' +
-      '<div class="head"><div><div class="brand">' + brandMark() + '<b>Frond</b></div><p class="eyebrow" style="margin-top:8px">' + longDate(t) + '</p></div>' + leafArt('corner') + '</div>' +
-      '<div class="home-grid" style="display:grid;gap:22px">' +
-        '<section class="card lift daily" aria-labelledby="h-daily"><div class="daily-top"><div><p class="eyebrow">Today’s puzzle · No. ' + p.number + '</p><h1 id="h-daily">' + esc(p.title) + '</h1><p class="meta">8 × 8 · ' + p.words.length + ' words · a new grid every day</p></div><div class="thumb" aria-hidden="true">' + thumb + '</div></div>' + action + '</section>' +
+    const shortDate = parse(t).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    const meta = p.n + ' × ' + p.n + ' · ' + p.words.length + ' words · ' + (p.gv >= 5 ? 'all 8 directions' : 'a new grid every day');
+    return '<div class="screen home">' +
+      '<div class="home-main">' +
+        '<section class="hero daily" aria-labelledby="h-daily">' + HERO_LEAF +
+          '<div class="hero-top">' + brandMark('var(--hero-ink)', 'var(--hero-b)') + '<b>Frond</b><span>' + shortDate + '</span></div>' +
+          '<p class="hero-eyebrow">Today’s puzzle · No. ' + p.number + '</p><h1 id="h-daily">' + esc(p.title) + '</h1><p class="meta">' + meta + '</p>' + action + '</section>' +
         '<section class="card streak" aria-labelledby="h-streak"><div class="streak-top"><div><p class="eyebrow" id="h-streak">Daily streak</p><b>' + cur + '</b> <span style="font-weight:700">' + (cur === 1 ? 'day' : 'days') + '</span></div><p class="eyebrow">Best ' + best + '</p></div>' +
           '<ol class="week" aria-label="Last seven days">' + week + '</ol>' +
           (cur === 0 ? '<p class="fine">Solve today’s puzzle to start a streak.</p>' : '') + '</section>' +
@@ -542,15 +557,15 @@
     const cats = [{ id: 'all', name: 'All' }, ...DATA.categories];
     const list = PACKS.filter((p) => S.cat === 'all' || p.cat === S.cat);
     return '<div class="screen">' +
-      '<div class="head"><div><h1>Library</h1><p class="eyebrow" style="margin-top:6px">' + PACKS.length + ' themes · ' + PER_PACK + ' puzzles each</p></div>' + leafArt('sprig') + '</div>' +
+      '<div class="head"><div><h1>Library</h1><p class="eyebrow" style="margin-top:6px">' + PACKS.length + ' themes · ' + PER_PACK + ' puzzles each</p></div></div>' +
       '<section aria-label="Category"><div class="chips">' + cats.map((c) => '<button type="button" class="chip" data-cat="' + c.id + '" aria-pressed="' + (S.cat === c.id) + '">' + TICK.replace('aria-hidden="true"', 'aria-hidden="true" width="14" height="14"') + c.name + '</button>').join('') + '</div></section>' +
-      '<section aria-labelledby="h-diff" style="display:grid;gap:8px"><h2 id="h-diff" class="eyebrow">Difficulty</h2><div class="seg" role="radiogroup" aria-labelledby="h-diff">' +
+      '<section aria-labelledby="h-diff" style="display:grid;gap:8px"><h2 id="h-diff" class="sr">Difficulty</h2><div class="seg" role="radiogroup" aria-labelledby="h-diff">' +
         Object.entries(LEVELS).map(([k, v]) => '<button type="button" role="radio" data-diff="' + k + '" aria-checked="' + (S.diff === k) + '" tabindex="' + (S.diff === k ? 0 : -1) + '">' + v.label + '<small>' + v.n + '×' + v.n + '</small></button>').join('') +
       '</div></section>' +
       '<section aria-label="Themes"><ul class="packs">' + list.map((p) => {
         const done = packDone(p.id, S.diff), complete = done === PER_PACK;
         return '<li style="display:grid"><button type="button" class="pack" data-pack="' + p.id + '" aria-label="' + esc(p.name) + ', ' + done + ' of ' + PER_PACK + ' solved' + (complete ? ', complete' : '') + '">' +
-          stampIcon(p.icon) + '<b>' + esc(p.name) + '</b>' +
+          stampIcon(p.icon, p.cat) + '<b>' + esc(p.name) + '</b>' +
           '<span class="pbar" aria-hidden="true"><i style="width:' + (done / PER_PACK * 100) + '%"></i></span>' +
           '<span class="row" aria-hidden="true">' + (complete ? '<span class="done">' + tick(true) + 'Complete</span>' : '<span>' + done + ' / ' + PER_PACK + '</span>') + '</span>' +
         '</button></li>';
@@ -615,7 +630,6 @@
       '<section class="pz-words" aria-labelledby="h-words"><div class="section-title"><h2 id="h-words">Find these</h2><span class="eyebrow" id="left">' + (p.words.length - prog.found.length) + ' left</span></div><ul class="words" id="words">' + wordListHTML(p, prog) + '</ul></section>' +
       '<div class="pz-tools" role="toolbar" aria-label="Puzzle controls" id="tools">' + toolsHTML(prog) + '</div>' +
       '<p class="pz-help" id="pz-help">Drag across letters, or tap the first letter and then the last. Words run ' + directionsText(p) + '. With a keyboard, move with the arrow keys and press Enter on the first and last letter.</p>' +
-      leafStrip() +
     '</div></div>';
   }
   // how words can run, in the player's words (matches each generator version's rules)
@@ -640,7 +654,8 @@
     paintHints();
 
     const cellAt = (e, clamp) => {
-      const rect = board.getBoundingClientRect();
+      // during a drag the grid is measured once, at the press, so moves never force a layout read
+      const rect = (P && P.drag && P.drag.rect) || board.getBoundingClientRect();
       let c = Math.floor((e.clientX - rect.left) / rect.width * p.n), r = Math.floor((e.clientY - rect.top) / rect.height * p.n);
       if (!clamp && (r < 0 || c < 0 || r >= p.n || c >= p.n)) return null;
       return [Math.min(p.n - 1, Math.max(0, r)), Math.min(p.n - 1, Math.max(0, c))];
@@ -652,12 +667,21 @@
       e.preventDefault();
       try { board.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ }
       P.kb = false; setCursor(null);
-      P.drag = { start: P.anchor || cell, end: cell, moved: false, fromAnchor: !!P.anchor, down: cell };
+      P.drag = { start: P.anchor || cell, end: cell, moved: false, fromAnchor: !!P.anchor, down: cell, rect: board.getBoundingClientRect() };
       if (!P.anchor) { P.drag.start = cell; showSel(cell, cell); buzz(6); tone([520], 0.05, 0, 0.025); }
       else showSel(P.anchor, snap(P.anchor, cell));
     });
     board.addEventListener('pointermove', (e) => {
       if (!P || !P.drag) return;
+      P.drag.x = e.clientX; P.drag.y = e.clientY;
+      if (P.drag.raf) return;
+      P.drag.raf = requestAnimationFrame(() => {
+        if (!P || !P.drag) return;
+        P.drag.raf = 0;
+        dragTo({ clientX: P.drag.x, clientY: P.drag.y });
+      });
+    });
+    const dragTo = (e) => {
       const cell = cellAt(e, true);
       const end = snap(P.drag.start, cell);
       if (end[0] !== P.drag.end[0] || end[1] !== P.drag.end[1]) {
@@ -665,11 +689,12 @@
         if (cell[0] !== P.drag.down[0] || cell[1] !== P.drag.down[1]) P.drag.moved = true;
         showSel(P.drag.start, end); buzz(4); tone([560 + 30 * pathCells(P.drag.start, end).length], 0.04, 0, 0.02);
       }
-    });
+    };
     const up = (e) => {
       if (!P) return;
       const d = P.drag; P.drag = null;
       if (!d) return;
+      if (d.raf) cancelAnimationFrame(d.raf);
       const last = cellAt(e, true);
       if (last[0] !== d.down[0] || last[1] !== d.down[1]) { d.moved = true; d.end = snap(d.start, last); }
       if (d.fromAnchor) { P.anchor = null; finish(d.start, snap(d.start, d.down)); return; }
@@ -868,6 +893,16 @@
   }
 
   /* ---------- Completion ---------- */
+  // a short burst of Riso-coloured pieces (transform and opacity only); hidden when motion is reduced
+  function confettiHTML() {
+    const colours = ['var(--green)', 'var(--pink)', 'var(--gold)', 'var(--l4)'];
+    let out = '';
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2, dist = 90 + (i % 4) * 22;
+      out += '<i style="background:' + colours[i % 4] + ';--x:' + Math.round(Math.cos(a) * dist * 1.4) + 'px;--y:' + Math.round(Math.sin(a) * dist - 30) + 'px;--r:' + (i * 47 % 360) + 'deg;--d:' + (i % 3) * 40 + 'ms"></i>';
+    }
+    return '<div class="confetti" aria-hidden="true">' + out + '</div>';
+  }
   function viewDone() {
     const id = route.arg, p = puzzle(id), rec = S.solved[id];
     const run = S.lastRun && S.lastRun.id === id ? S.lastRun : { time: rec.time, hints: rec.hints, at: rec.at };
@@ -875,6 +910,8 @@
       : run.at === rec.at ? '<p class="done-sub best-note">New best time for this puzzle</p>'
       : '<p class="done-sub best-note">Your best for this puzzle is ' + clock(rec.time) + '</p>';
     const { cur } = streaks();
+    // confetti only on the moment of finishing, not when the screen is reopened later
+    const fresh = S.lastRun && S.lastRun.id === id && Date.now() - S.lastRun.at < 5000;
     let nextLabel, nextId;
     if (p.kind === 'daily') {
       const i = nextInPack(p.pack.id, S.diff);
@@ -897,14 +934,14 @@
       clock(run.time) + ' · ' + p.words.length + ' words · ' + (run.hints ? run.hints + (run.hints === 1 ? ' hint' : ' hints') : 'no hints') + '\n' +
       p.words.map((_, i) => (i < run.hints ? '□' : '■')).join('');
     return '<div class="screen no-tabs">' +
-      '<div class="done-top"><button class="btn ghost" type="button" data-go="' + (p.kind === 'daily' ? 'home' : 'library') + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>Close</button>' + leafArt('heart', 110, 70) + '</div>' +
-      '<h1 class="big-stamp">' + esc(p.pack.done) + '</h1>' +
-      '<p class="done-sub">' + esc(p.title) + (p.kind === 'daily' ? ' · daily No. ' + p.number : ' · ' + LEVELS[p.level].label + ' puzzle ' + (p.idx + 1)) + '</p>' +
+      '<div class="done-top"><button class="btn ghost" type="button" data-go="' + (p.kind === 'daily' ? 'home' : 'library') + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>Close</button></div>' +
+      '<div class="celebrate">' + (fresh ? confettiHTML() : '') + '<h1 class="big-stamp">' + esc(p.pack.done) + '</h1>' +
+      '<p class="done-sub">' + esc(p.title) + (p.kind === 'daily' ? ' · daily No. ' + p.number : ' · ' + LEVELS[p.level].label + ' puzzle ' + (p.idx + 1)) + '</p></div>' +
       '<div class="mini">' + boardHTML(p, rec.found || [], { label: 'Solved grid with all ' + p.words.length + ' words circled' }) + '</div>' +
       '<dl class="statrow"><div><dt>Time</dt><dd>' + clock(run.time) + '</dd></div><div><dt>Hints</dt><dd>' + run.hints + '</dd></div>' + third + '</dl>' + replayNote +
-      '<section class="card share" aria-labelledby="h-share"><h2 id="h-share" class="eyebrow">Share your result</h2><pre id="sharetext">' + esc(share) + '</pre><button class="btn primary" type="button" data-act="share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy result</button></section>' +
+      '<section class="card share" aria-labelledby="h-share"><h2 id="h-share">Share your result</h2><pre id="sharetext">' + esc(share) + '</pre><button class="btn primary big" type="button" data-act="share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy result</button></section>' +
       '<div class="next">' + (nextId
-        ? '<button class="btn primary wide" type="button" data-play="' + nextId + '">Next puzzle: ' + esc(nextLabel) + '</button>'
+        ? '<button class="btn wide" type="button" data-play="' + nextId + '">Next puzzle: ' + esc(nextLabel) + '</button>'
         : '<p class="fine">You’ve solved every ' + (p.level ? LEVELS[p.level].label.toLowerCase() : '') + ' puzzle. Try another difficulty in the library.</p>') +
         '<button class="btn wide" type="button" data-go="library">Browse the library</button></div>' +
     '</div>';
@@ -929,10 +966,10 @@
     const clean = all.filter((r) => !r.hints).length;
     const toBeat = best - cur;
     return '<div class="screen">' +
-      '<div class="head"><div><h1>Stats</h1><p class="eyebrow" style="margin-top:6px">Your puzzles on this device</p></div>' + leafArt('sprig') + '</div>' +
-      '<section class="card lift bigstreak" aria-label="Streak"><div><p class="eyebrow">Current streak</p><p style="display:flex;align-items:baseline;gap:6px;margin-top:2px"><b>' + cur + '</b><span style="font-weight:700;font-size:18px">' + (cur === 1 ? 'day' : 'days') + '</span></p></div>' +
-        '<div style="text-align:right"><p class="eyebrow">Best</p><p style="font-weight:800;font-size:26px;margin-top:2px">' + best + (best === 1 ? ' day' : ' days') + '</p><p class="fine" style="margin-top:4px">' + (cur === 0 ? 'Solve today’s puzzle to start' : toBeat > 0 ? toBeat + ' more to beat it' : 'This is your best yet') + '</p></div></section>' +
-      '<section aria-labelledby="h-cal" style="display:grid;gap:10px"><div class="section-title"><h2 id="h-cal">Last five weeks</h2><span class="eyebrow">Daily puzzles</span></div>' +
+      '<div class="head"><div><h1>Stats</h1><p class="eyebrow" style="margin-top:6px">Your puzzles on this device</p></div></div>' +
+      '<section class="bigstreak" aria-label="Streak"><div><p class="eyebrow">Current streak</p><p style="display:flex;align-items:baseline;gap:6px;margin-top:2px"><b>' + cur + '</b><span style="font-weight:700;font-size:18px">' + (cur === 1 ? 'day' : 'days') + '</span></p></div>' +
+        '<div><p class="eyebrow">Best streak</p><p style="display:flex;align-items:baseline;gap:6px;margin-top:2px"><b>' + best + '</b><span style="font-weight:700;font-size:18px">' + (best === 1 ? 'day' : 'days') + '</span></p><p class="fine" style="margin-top:4px">' + (cur === 0 ? 'Solve today’s puzzle to start' : toBeat > 0 ? toBeat + ' more to beat it' : 'This is your best yet') + '</p></div></section>' +
+      '<section class="card cal-card" aria-labelledby="h-cal"><div class="section-title"><h2 id="h-cal" style="font-size:16px">Last five weeks</h2><span class="eyebrow">Daily puzzles</span></div>' +
         '<div class="cal" aria-hidden="true">' + ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d) => '<span class="dow">' + d + '</span>').join('') + '</div>' +
         '<ol class="cal" aria-label="Daily results">' + days.join('') + '</ol></section>' +
       '<dl class="totals"><div><dt>Puzzles solved</dt><dd>' + all.length + '</dd></div><div><dt>Average time</dt><dd>' + avg + '</dd></div><div><dt>Fastest</dt><dd>' + fast + '</dd></div><div><dt>Solved without hints</dt><dd>' + clean + '</dd></div></dl>' +
@@ -956,7 +993,7 @@
     const items = (showAllSolves ? rows : rows.slice(0, 10)).map((x) => {
       const what = x.daily ? 'Daily \u00b7 No. ' + x.number : LEVELS[x.level].label + ' \u00b7 puzzle ' + (x.idx + 1);
       const plays = (x.r.plays || 1) > 1 ? ' \u00b7 ' + x.r.plays + ' plays' : '';
-      return '<li>' + stampIcon(x.pack.icon) +
+      return '<li>' + stampIcon(x.pack.icon, x.pack.cat) +
         '<span class="info"><b>' + esc(x.pack.name) + '</b><span>' + what + '</span></span>' +
         '<span class="htime"><b>' + clock(x.r.time) + '</b><small>' + date(x.when) + plays + '</small></span></li>';
     }).join('');
@@ -971,21 +1008,21 @@
     const row = (k, label, note) => '<div class="setrow"><label for="set-' + k + '"><b>' + label + '</b><span>' + note + '</span></label>' +
       '<span class="sw"><input type="checkbox" role="switch" id="set-' + k + '" data-set="' + k + '"' + (s[k] ? ' checked' : '') + '><i aria-hidden="true"><svg viewBox="0 0 14 14"><path d="M2.4 7.4l2.8 2.8 6.2-6.8"/></svg></i></span></div>';
     return '<div class="screen">' +
-      '<div class="head"><div><h1>Settings</h1></div>' + leafArt('corner') + '</div>' +
-      '<section aria-labelledby="h-theme" style="display:grid;gap:8px"><h2 id="h-theme" style="font-weight:800;font-size:17px">Theme</h2>' +
+      '<div class="head"><div><h1>Settings</h1></div></div>' +
+      '<section class="setgroup" aria-labelledby="h-theme"><h2 id="h-theme">Theme</h2>' +
         '<div class="seg theme" role="radiogroup" aria-labelledby="h-theme">' + [['light', 'Light'], ['dark', 'Dark'], ['system', 'Match device']].map(([k, l]) =>
           '<button type="button" role="radio" data-theme-set="' + k + '" aria-checked="' + (s.theme === k) + '" tabindex="' + (s.theme === k ? 0 : -1) + '">' + TICK + l + '</button>').join('') + '</div></section>' +
-      '<section class="setgroup" aria-labelledby="h-sound"><div class="section-title"><h2 id="h-sound">Sound and touch</h2></div>' +
+      '<section class="setgroup" aria-labelledby="h-sound"><h2 id="h-sound">Sound and touch</h2><div class="card set-card">' +
         row('sound', 'Sound effects', 'Soft taps as letters join, a chime when you find a word') +
-        row('haptics', 'Haptics', 'A light buzz as each letter joins, on phones that support it') + '</section>' +
-      '<section class="setgroup" aria-labelledby="h-a11y"><div class="section-title"><h2 id="h-a11y">Accessibility</h2></div>' +
+        row('haptics', 'Haptics', 'A light buzz as each letter joins, on phones that support it') + '</div></section>' +
+      '<section class="setgroup" aria-labelledby="h-a11y"><h2 id="h-a11y">Accessibility</h2><div class="card set-card">' +
         row('large', 'Larger letters', 'Bigger letters in every grid') +
         row('strong', 'Stronger highlights', 'Thicker outlines on found words') +
         row('cb', 'Colour-blind-safe palette', 'Highlight colours chosen to differ in lightness') +
         row('motion', 'Reduce motion', 'Turns off animations. Frond also follows your device setting') +
-        row('left', 'Left-handed controls', 'Moves Hint to the left, under your thumb') + '</section>' +
-      '<section class="setgroup" aria-labelledby="h-data"><div class="section-title"><h2 id="h-data">Your progress</h2></div>' +
-        '<p class="fine" style="padding:12px 0">Streaks and solved puzzles are saved in this browser only. Clearing site data resets them.</p></section>' +
+        row('left', 'Left-handed controls', 'Moves Hint to the left, under your thumb') + '</div></section>' +
+      '<section class="setgroup" aria-labelledby="h-data"><h2 id="h-data">Your progress</h2>' +
+        '<p class="card fine" style="padding:14px 16px">Streaks and solved puzzles are saved in this browser only. Clearing site data resets them.</p></section>' +
     '</div>';
   }
 
@@ -1041,6 +1078,29 @@
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
   window.addEventListener('pagehide', save);
+
+  // Glass menu bar: phones with few cores or little memory get a lighter blur straight away; on any
+  // phone, if scrolling drops frames, the blur is reduced, then turned off if it still struggles.
+  (() => {
+    const root = document.documentElement;
+    try { if ((navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) < 4) root.classList.add('lite-glass'); } catch (e) { /* ignore */ }
+    let sampling = false;
+    addEventListener('scroll', () => {
+      if (sampling || root.classList.contains('no-glass') || $('#tabbar').hidden) return;
+      sampling = true;
+      let frames = 0, slow = 0, last = performance.now();
+      const step = (now) => {
+        if (now - last > 34) slow++;
+        last = now;
+        if (++frames < 30) return requestAnimationFrame(step);
+        if (slow >= 8) root.classList.add(root.classList.contains('lite-glass') ? 'no-glass' : 'lite-glass');
+        setTimeout(() => { sampling = false; }, 4000);
+      };
+      requestAnimationFrame(step);
+    }, { passive: true });
+  })();
+  // lets :active press feedback show instantly on iPhones
+  document.addEventListener('touchstart', () => {}, { passive: true });
 
   // reopen the screen that was showing before a refresh
   const v = S.view;

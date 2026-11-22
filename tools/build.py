@@ -44,7 +44,7 @@ artifact_head = (
     '<meta name="claude:viewport-fit-sides" content="cover">\n'
     '<link rel="preconnect" href="https://fonts.googleapis.com">\n'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
-    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=DM+Mono:wght@400;500&display=swap">'
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&display=swap">'
 )
 artifact = page.replace("<!--@@HEAD@@-->", artifact_head).replace("<!--@@BOOT@@-->", "")
 (dist / "frond.html").write_text(artifact, encoding="utf-8")
@@ -71,9 +71,7 @@ for f in sorted((assets / "icons").glob("*.png")):
     shutil.copy2(f, site / "icons" / f.name)
 
 fonts_css = """
-@font-face { font-family: 'Bricolage Grotesque'; font-style: normal; font-weight: 500 800; font-display: swap; src: url("fonts/bricolage-grotesque-latin.woff2") format("woff2"); }
-@font-face { font-family: 'DM Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/dm-mono-400-latin.woff2") format("woff2"); }
-@font-face { font-family: 'DM Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url("fonts/dm-mono-500-latin.woff2") format("woff2"); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400 800; font-display: swap; src: url("fonts/inter-latin.woff2") format("woff2"); }
 """.strip()
 site_head = (
     '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
@@ -89,7 +87,7 @@ site_head = (
     '<meta name="apple-mobile-web-app-capable" content="yes">\n'
     '<meta name="mobile-web-app-capable" content="yes">\n'
     '<meta name="apple-mobile-web-app-status-bar-style" content="default">\n'
-    '<link rel="preload" href="fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>\n'
+    '<link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>\n'
     f"<style>{reset}\n{fonts_css}</style>\n"
     "</head>\n<body>\n"
 )

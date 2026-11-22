@@ -45,4 +45,4 @@ Push to `main`. The **Deploy to GitHub Pages** workflow builds the site, runs bo
 
 ## Credits
 
-The fonts are [Bricolage Grotesque](https://github.com/ateliertriay/bricolage) and [DM Mono](https://github.com/googlefonts/dm-mono), both under the SIL Open Font License 1.1. The licence texts are in `assets/fonts/`.
+The typeface is [Inter](https://github.com/rsms/inter), under the SIL Open Font License 1.1, bundled so the app works offline. Its licence is in `assets/fonts/`.

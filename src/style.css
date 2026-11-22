@@ -367,6 +367,9 @@ html.lefty .pz-tools .btn:nth-child(3) { order: -1; }
 .sw:has(input:checked) { background: var(--green); }
 .sw:has(input:checked) i { transform: translateX(20px); }
 .sw:has(input:checked) i svg { visibility: visible; }
+.setrow.unavailable label { cursor: default; }
+.setrow.unavailable .sw { opacity: .45; }
+.setrow.unavailable .sw input { cursor: not-allowed; }
 .sw:has(input:focus-visible) { outline: 3px solid var(--ink); outline-offset: 3px; }
 .seg.theme button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; display: none; }
 .seg.theme button[aria-checked="true"] svg { display: block; }

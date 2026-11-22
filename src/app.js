@@ -377,6 +377,9 @@
       });
     } catch (e) { /* no audio */ }
   }
+  // iPhone and iPad browsers have no vibration API, so the Haptics switch shows as unavailable there
+  const CAN_BUZZ = typeof navigator.vibrate === 'function';
+  const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const buzz = (ms) => { if (S.settings.haptics) try { navigator.vibrate && navigator.vibrate(ms); } catch (e) { /* ignore */ } };
 
   /* ---------- small helpers ---------- */
@@ -1005,8 +1008,8 @@
   /* ---------- Settings ---------- */
   function viewSettings() {
     const s = S.settings;
-    const row = (k, label, note) => '<div class="setrow"><label for="set-' + k + '"><b>' + label + '</b><span>' + note + '</span></label>' +
-      '<span class="sw"><input type="checkbox" role="switch" id="set-' + k + '" data-set="' + k + '"' + (s[k] ? ' checked' : '') + '><i aria-hidden="true"><svg viewBox="0 0 14 14"><path d="M2.4 7.4l2.8 2.8 6.2-6.8"/></svg></i></span></div>';
+    const row = (k, label, note, off) => '<div class="setrow' + (off ? ' unavailable' : '') + '"><label for="set-' + k + '"><b>' + label + '</b><span>' + (off || note) + '</span></label>' +
+      '<span class="sw"><input type="checkbox" role="switch" id="set-' + k + '" data-set="' + k + '"' + (s[k] && !off ? ' checked' : '') + (off ? ' disabled' : '') + '><i aria-hidden="true"><svg viewBox="0 0 14 14"><path d="M2.4 7.4l2.8 2.8 6.2-6.8"/></svg></i></span></div>';
     return '<div class="screen">' +
       '<div class="head"><div><h1>Settings</h1></div></div>' +
       '<section class="setgroup" aria-labelledby="h-theme"><h2 id="h-theme">Theme</h2>' +
@@ -1014,7 +1017,7 @@
           '<button type="button" role="radio" data-theme-set="' + k + '" aria-checked="' + (s.theme === k) + '" tabindex="' + (s.theme === k ? 0 : -1) + '">' + TICK + l + '</button>').join('') + '</div></section>' +
       '<section class="setgroup" aria-labelledby="h-sound"><h2 id="h-sound">Sound and touch</h2><div class="card set-card">' +
         row('sound', 'Sound effects', 'Soft taps as letters join, a chime when you find a word') +
-        row('haptics', 'Haptics', 'A light buzz as each letter joins, on phones that support it') + '</div></section>' +
+        row('haptics', 'Haptics', 'A light buzz as each letter joins', CAN_BUZZ ? '' : (IS_IOS ? 'Not supported on iPhone' : 'Not supported on this device')) + '</div></section>' +
       '<section class="setgroup" aria-labelledby="h-a11y"><h2 id="h-a11y">Accessibility</h2><div class="card set-card">' +
         row('large', 'Larger letters', 'Bigger letters in every grid') +
         row('strong', 'Stronger highlights', 'Thicker outlines on found words') +

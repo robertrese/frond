@@ -277,10 +277,23 @@
   // v5 (direction mix, crossings, no stacking): the first daily no player could have seen when it
   // was released (earliest time zone, UTC+14), and every library puzzle not yet started.
   const GEN5_FROM = '2026-11-14';
-  function versionOf(id) {
-    const rec = typeof S !== 'undefined' && (S.progress[id] || S.solved[id]);
+  // the version a daily was released with: what anyone who played it on the day got
+  const releasedVersion = (d) => (d < GEN2_FROM ? 1 : d < CONTENT4_FROM ? 2 : d < GEN5_FROM ? 4 : 5);
+  // a puzzle is started once a word is found or a hint used; just opening it doesn't count
+  const started = (prog) => !!prog && ((prog.found || []).length > 0 || prog.hints > 0 || (prog.hintCells || []).length > 0);
+  function versionOf(id, st = typeof S !== 'undefined' ? S : null, day = today()) {
+    const solved = st && st.solved[id], prog = st && st.progress[id];
+    if (id.startsWith('d:')) {
+      const d = id.slice(2);
+      if (d >= GEN5_FROM) return solved || prog ? (solved || prog).gv || 1 : 5;
+      // a past daily from before v5 keeps its grid only if this player solved or started it; otherwise
+      // it opens on v5 (the current rules). On its own day it stays as released.
+      if (solved) return solved.gv || 1;
+      if (started(prog)) return prog.gv || 1;
+      return d < day ? 5 : releasedVersion(d);
+    }
+    const rec = st && (st.progress[id] || st.solved[id]);
     if (rec) return rec.gv || 1;
-    if (id.startsWith('d:')) { const d = id.slice(2); return d < GEN2_FROM ? 1 : d < CONTENT4_FROM ? 2 : d < GEN5_FROM ? 4 : 5; }
     return 5;
   }
   const wordsFor = (pack, gv) => (gv >= 4 || !pack.legacy ? pack.words : pack.legacy);
@@ -579,7 +592,10 @@
   /* ---------- Puzzle ---------- */
   let P = null; // live puzzle state
   function progressFor(id) {
-    return S.progress[id] || { found: [], elapsed: 0, hints: 0, hintCells: [], at: Date.now(), gv: versionOf(id) };
+    const prog = S.progress[id], gv = versionOf(id);
+    // an old daily that was only opened (nothing found, no hints) moves to the current grid, from the start
+    if (prog && prog.gv !== gv && !started(prog)) Object.assign(prog, { gv, elapsed: 0, hintCells: [] });
+    return prog || { found: [], elapsed: 0, hints: 0, hintCells: [], at: Date.now(), gv };
   }
   function capsule(n, r0, c0, r1, c1, thick) {
     const x0 = (c0 + 0.5) / n, y0 = (r0 + 0.5) / n, x1 = (c1 + 0.5) / n, y1 = (r1 + 0.5) / n;

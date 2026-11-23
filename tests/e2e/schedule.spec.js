@@ -78,3 +78,53 @@ test('the dailies before 6 Nov keep their original themes', async ({ page }) => 
     await expect(page.locator('#h-daily'), day).toHaveText(theme);
   }
 });
+
+// Past dailies from before the v5 rules (14 Nov 2026): a player who never started one gets it on the
+// current generator; anyone who started or solved it keeps the grid they had. Seen on 23 Nov 2026.
+const NOV7 = 'd:2026-11-07';
+const NOV7_V4 = 'JDMLAPIEJASMINEAAIREMULPNADNAPOTOALLINAVMEOLAOCLUILIMEAOTUNOCOCI'; // as released (v4)
+const NOV7_V5 = 'PSECFERNAWLAENALPORCHIDJAAIAEMRAYENOVSLIAALDAAOOBANOAJUCBANYANFG'; // current rules (v5)
+async function openOld(page, save) {
+  await page.clock.setFixedTime(new Date('2026-11-23T12:00:00'));
+  await page.goto('./manifest.webmanifest');
+  await page.evaluate((d) => localStorage.setItem('frond.v1', JSON.stringify(d)), { solved: {}, progress: {}, ...save, view: { name: 'puzzle', arg: NOV7 } });
+  await page.goto('./');
+  await expect(page.locator('#board .cells span')).toHaveCount(64);
+  return page.locator('#board .cells span').evaluateAll((els) => els.map((e) => e.textContent).join(''));
+}
+const savedGv = (page) => page.evaluate((id) => { const s = JSON.parse(localStorage.getItem('frond.v1')); return (s.progress[id] || s.solved[id]).gv; }, NOV7);
+
+test('an unstarted past daily from before 14 Nov opens on the current rules', async ({ page }) => {
+  expect(await openOld(page, {})).toBe(NOV7_V5);
+  await expect(page.locator('.pz-help, #pz-help').first()).toContainText('all 8 directions');
+  const p = await readPuzzle(page);
+  await drag(page, p, p.words[0].word);
+  await expect(page.locator('#words li.done')).toHaveCount(1);
+  await page.evaluate(() => dispatchEvent(new Event('pagehide')));
+  expect(await savedGv(page)).toBe(5);
+});
+
+test('a past daily that was only opened before (nothing found) also moves to the current rules', async ({ page }) => {
+  const opened = { found: [], elapsed: 40, hints: 0, hintCells: [], at: Date.now(), gv: 4 };
+  expect(await openOld(page, { progress: { [NOV7]: opened } })).toBe(NOV7_V5);
+  await expect(page.locator('#clock')).toHaveText(/^0:0\d$/);
+  await page.evaluate(() => dispatchEvent(new Event('pagehide')));
+  expect(await savedGv(page)).toBe(5);
+});
+
+test('a started past daily keeps its original grid and progress', async ({ page }) => {
+  const started = { found: [{ w: 'ALOE', a: [5, 4], b: [5, 1] }], elapsed: 95, hints: 0, hintCells: [], at: Date.now(), gv: 4 };
+  expect(await openOld(page, { progress: { [NOV7]: started } })).toBe(NOV7_V4);
+  await expect(page.locator('#words li.done')).toHaveCount(1);
+  await expect(page.locator('#count')).toHaveText('1 / 9 found');
+  await expect(page.locator('#clock')).toHaveText(/^1:3\d$/);
+  await page.evaluate(() => dispatchEvent(new Event('pagehide')));
+  expect(await savedGv(page)).toBe(4);
+});
+
+test('a solved past daily keeps its original grid and record', async ({ page }) => {
+  const rec = { time: 210, hints: 0, at: new Date('2026-11-07T10:00:00').getTime(), found: [], gv: 4 };
+  expect(await openOld(page, { solved: { [NOV7]: rec } })).toBe(NOV7_V4);
+  const s = await page.evaluate(() => JSON.parse(localStorage.getItem('frond.v1')));
+  expect(s.solved[NOV7]).toMatchObject({ time: 210, gv: 4 });
+});

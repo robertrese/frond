@@ -22,7 +22,7 @@ section('Puzzles');
   const cut = (from, to) => app.slice(app.indexOf(from), app.indexOf(to));
   const code = cut('const DATA', '/* ---------- storage') + cut('const pad =', '/* ---------- puzzle generation') +
     cut('/* ---------- puzzle generation', '/* ---------- streaks') +
-    'return { PACKS, ALL, LEVELS, LEVELS3, DAILY, PER_PACK, LAUNCH, GEN2_FROM, GEN5_FROM, BLOCKED, DAILY_SCHEDULE, CONTENT4_FROM, dailyTheme, puzzle, versionOf, problems, packId, dailyId, iso, addDays, parse };';
+    'return { PACKS, ALL, LEVELS, LEVELS3, DAILY, PER_PACK, LAUNCH, GEN2_FROM, GEN5_FROM, BLOCKED, DAILY_SCHEDULE, CONTENT4_FROM, dailyTheme, puzzle, versionOf, releasedVersion, problems, packId, dailyId, iso, addDays, parse };';
   const G = new Function('window', code)(sandbox.window);
   // independent scan (not the generator's own check): every place `str` reads in 8 directions
   const DIRS = [[0, 1], [1, 0], [1, 1], [-1, 1], [0, -1], [-1, 0], [1, -1], [-1, -1]];
@@ -171,10 +171,12 @@ section('Puzzles');
   for (const lv of ['easy', 'medium', 'hard']) for (let c = RULES[lv].words[0]; c <= RULES[lv].words[1]; c++) ok(stats[lv].counts[c] > 0, lv + ' never uses ' + c + ' words');
   let v5Dailies = 0;
   for (let k = 0; k < DAILY_DAYS; k++) {
-    const d = G.iso(G.addDays(G.parse(G.LAUNCH), k)), q = G.puzzle(G.dailyId(d));
+    const d = G.iso(G.addDays(G.parse(G.LAUNCH), k)), q = G.puzzle(G.dailyId(d), G.releasedVersion(d));
     verify(q, [9, 9], 'daily ' + d);
     const want = d < G.GEN2_FROM ? 1 : d < G.CONTENT4_FROM ? 2 : d < G.GEN5_FROM ? 4 : 5;
-    ok(q.gv === want, 'daily ' + d + ' should use v' + want + ', got v' + q.gv);
+    ok(q.gv === want, 'daily ' + d + ' should be released on v' + want + ', got v' + q.gv);
+    // a daily from before v5 that a player never started opens on v5 afterwards, so that grid must be valid too
+    if (d < G.GEN5_FROM) { const q5 = G.puzzle(G.dailyId(d), 5); verify(q5, [9, 9], 'daily ' + d + ' (v5, unstarted)'); checkV5(q5, 'daily', 'daily ' + d + ' (v5, unstarted)'); }
     if (q.gv === 5) { checkV5(q, 'daily', 'daily ' + d); v5Dailies++; }
     count('daily');
   }
@@ -185,11 +187,25 @@ section('Puzzles');
   ok(JSON.stringify(again.rows) === JSON.stringify(G.puzzle('d:2026-11-02').rows), 'the same day gives a different grid on a second run');
   // v1 must never change: puzzles already started, solved, or played as past dailies depend on it
   ok(G.puzzle('d:2026-11-02', 1).rows.join(' ') === 'LYCHEECA FAANMROI ANAIEECR LNLERGOE OALOMNNM ECLCRIUU MANGOGTL OOBMABOP', 'v1 daily for 2 Nov 2026 changed');
-  ok(G.versionOf('d:2026-11-04') === 1 && G.puzzle('d:2026-11-04').gv === 1, 'today’s daily (4 Nov 2026) must stay on v1');
-  ok(G.versionOf('d:' + G.GEN2_FROM) === 2, 'dailies from ' + G.GEN2_FROM + ' should use v2');
-  ok(G.versionOf('p:herbs:easy:0') === 5 && G.versionOf('p:ghana:hard:0') === 5, 'new library puzzles should use v5');
-  ok(G.versionOf('d:2026-11-13') === 4 && G.versionOf('d:' + G.GEN5_FROM) === 5, 'dailies switch to v5 on ' + G.GEN5_FROM + ', not before');
-  ok(G.versionOf('d:2026-11-04') === 1 && G.versionOf('d:2026-11-05') === 2 && G.versionOf('d:2026-11-06') === 4, 'dailies switch to the new word packs on 6 Nov 2026, not before');
+  // on its own day a daily is played as released: v1 to 4 Nov, v2 on 5 Nov, v4 from 6 Nov, v5 from 14 Nov
+  const none = { solved: {}, progress: {} };
+  for (const [d, v] of [['2026-11-02', 1], ['2026-11-04', 1], ['2026-11-05', 2], ['2026-11-06', 4], ['2026-11-13', 4], [G.GEN5_FROM, 5], ['2026-12-25', 5]]) {
+    ok(G.releasedVersion(d) === v && G.versionOf('d:' + d, none, d) === v, 'the ' + d + ' daily should be v' + v + ' on its own day');
+  }
+  ok(G.versionOf('p:herbs:easy:0', none) === 5 && G.versionOf('p:ghana:hard:0', none) === 5, 'new library puzzles should use v5');
+  // a past daily from before v5: unstarted (or only opened) → v5; started or solved → the grid the player had
+  {
+    const id = 'd:2026-11-07', later = '2026-11-23', blank = { found: [], elapsed: 40, hints: 0, hintCells: [], at: 1, gv: 4 };
+    ok(G.versionOf(id, none, later) === 5, 'an unstarted past daily (7 Nov) should open on v5');
+    ok(G.versionOf(id, { solved: {}, progress: { [id]: blank } }, later) === 5, 'a past daily only opened (nothing found, no hints) should open on v5');
+    ok(G.versionOf(id, { solved: {}, progress: { [id]: { ...blank, found: [{ w: 'X' }] } } }, later) === 4, 'a started past daily must keep its v4 grid');
+    ok(G.versionOf(id, { solved: {}, progress: { [id]: { ...blank, hints: 1, hintCells: [[0, 0]] } } }, later) === 4, 'a past daily with a hint used must keep its v4 grid');
+    ok(G.versionOf(id, { solved: { [id]: { time: 90, hints: 0, at: 1, found: [], gv: 4 } }, progress: {} }, later) === 4, 'a solved past daily must keep its v4 grid');
+    ok(G.versionOf('d:2026-11-03', { solved: { 'd:2026-11-03': { time: 90, hints: 0, at: 1, found: [] } }, progress: {} }, later) === 1, 'a solved daily saved before versions existed stays v1');
+    ok(G.versionOf('d:2026-11-15', { solved: {}, progress: {} }, later) === 5 && G.versionOf('d:2026-11-15', { solved: {}, progress: { 'd:2026-11-15': blank } }, later) === 4, 'dailies from ' + G.GEN5_FROM + ' keep whatever version they were saved with');
+    const v4 = G.puzzle(id, 4), v5 = G.puzzle(id, 5);
+    ok(v4.pack.id === v5.pack.id && v4.rows.join('') !== v5.rows.join(''), 'the v5 7 Nov daily keeps its theme but gets a new grid');
+  }
   // v3 library grids are frozen for anyone who started one between the v3 and v4 releases
   ok(G.puzzle('p:ocean:hard:0', 3).rows.join('') === 'LEHFOSODOALSPBELTRUTOPSFMDIUQSEKTTMOIIRJUUETIEWLRNEREUKASBRTHSLLRLHRTBCMSAACOSLIAOOWWEHOITRYRHPLSIWHALRAFESSNLRJAELIIIEFLLACORCASTSTIWNIDOLPHINH', 'v3 library grid for ocean hard 1 changed');
   // v2 library grids are frozen for anyone who started one between 4 Nov and the v3 release
@@ -239,7 +255,8 @@ section('Puzzles');
   const playedThrough = new Date(Date.now() + 14 * 3600e3).toISOString().slice(0, 10);
   let played = 0, futureChanged = 0;
   for (const [d, want] of Object.entries(snapshot)) {
-    const got = fingerprint(G.puzzle(G.dailyId(d)));
+    // the grid as released: what anyone who started or solved it keeps
+    const got = fingerprint(G.puzzle(G.dailyId(d), G.releasedVersion(d)));
     // every daily already played, and every daily before the new packs join on 6 Nov 2026, is fixed
     if (d <= playedThrough || d < G.CONTENT4_FROM) { played++; ok(got === want, 'daily ' + d + ' is fixed but changed: was ' + want + ', now ' + got); }
     else if (got !== want) futureChanged++;
@@ -248,13 +265,13 @@ section('Puzzles');
   // the first 31 dailies of the new schedule: v4, rotating through the new list, clean and playable
   const firstNew = [];
   for (let k = 0; k < 31; k++) {
-    const d = G.iso(G.addDays(G.parse('2026-11-06'), k)), q = G.puzzle(G.dailyId(d));
+    const d = G.iso(G.addDays(G.parse('2026-11-06'), k)), q = G.puzzle(G.dailyId(d), G.releasedVersion(d));
     const want = G.DAILY_SCHEDULE[1].themes[k % G.DAILY_SCHEDULE[1].themes.length];
     ok(q.gv === (d < G.GEN5_FROM ? 4 : 5) && q.pack.id === want, 'daily ' + d + ' should be ' + want + ', got ' + q.pack.id + ' v' + q.gv);
     ok(q.words.length === 9 && !issues(q).length, 'daily ' + d + ' is not clean and playable');
     firstNew.push(d.slice(5) + ' ' + q.pack.id);
   }
-  ok(G.puzzle('d:2026-11-05').pack.id === 'trees' && G.puzzle('d:2026-11-05').gv === 2, 'the 5 Nov daily must stay Woodland Trees on v2');
+  ok(G.puzzle('d:2026-11-05', G.releasedVersion('2026-11-05')).pack.id === 'trees' && G.releasedVersion('2026-11-05') === 2, 'the 5 Nov daily must stay Woodland Trees on v2');
   const era2 = G.DAILY_SCHEDULE[1];
   ok(era2 && era2.from === '2026-11-06' && G.CONTENT4_FROM === '2026-11-06', 'the new daily schedule must start on 6 Nov 2026');
   ok(era2 && era2.themes.length === G.PACKS.length && new Set(era2.themes).size === G.PACKS.length, 'the new daily schedule must include every pack exactly once');
